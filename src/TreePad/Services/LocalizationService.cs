@@ -376,7 +376,7 @@ TreePad의 모든 메모는 사용자 PC의 실제 폴더와 UTF-8 텍스트 파
             if (IsEnglish)
             {
                 return
-@"🌲 TreePad v1.0.1
+@"🌲 TreePad v1.0.2
 
 A minimal, hierarchical plain-text notepad for Windows 11.
 Warm Gruvbox Material Paper Theme.
@@ -390,7 +390,7 @@ Fast, distraction-free writing with folder trees, live cloud sync (.txt / .md), 
             else
             {
                 return
-@"🌲 TreePad v1.0.1
+@"🌲 TreePad v1.0.2
 
 나만의 윈도우 11 순수 텍스트 트리 메모장
 편안한 Gruvbox Material 종이 테마 적용

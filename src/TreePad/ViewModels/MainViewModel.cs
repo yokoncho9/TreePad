@@ -33,6 +33,7 @@ namespace TreePad.ViewModels
         public event Action<NoteTabViewModel?>? ActiveTabChanging;
         public event Action<NoteTabViewModel?>? ActiveTabChanged;
         public event Action? ExternalContentReloaded;
+        public Func<string, bool, bool>? ConfirmDeleteCallback { get; set; }
 
         public ObservableCollection<TreeItemViewModel> RootItems { get; } = new();
         public ObservableCollection<NoteTabViewModel> Tabs { get; } = new();
@@ -1032,11 +1033,21 @@ namespace TreePad.ViewModels
 
             string targetName = SelectedItem.Name;
             bool isFolder = SelectedItem.IsFolder;
-            string msg = LocalizationService.Instance.GetDeleteConfirmMessage(targetName, isFolder);
-            string title = LocalizationService.Instance.GetDeleteConfirmTitle();
 
-            var result = MessageBox.Show(msg, title, MessageBoxButton.YesNo, MessageBoxImage.Question);
-            if (result != MessageBoxResult.Yes) return;
+            bool isConfirmed = false;
+            if (ConfirmDeleteCallback != null)
+            {
+                isConfirmed = ConfirmDeleteCallback(targetName, isFolder);
+            }
+            else
+            {
+                string msg = LocalizationService.Instance.GetDeleteConfirmMessage(targetName, isFolder);
+                string title = LocalizationService.Instance.GetDeleteConfirmTitle();
+                var result = MessageBox.Show(msg, title, MessageBoxButton.YesNo, MessageBoxImage.Question);
+                isConfirmed = (result == MessageBoxResult.Yes);
+            }
+
+            if (!isConfirmed) return;
 
             try
             {

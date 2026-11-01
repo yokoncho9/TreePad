@@ -87,4 +87,11 @@
     <sys:String x:Key="About_Description">Experience fast, distraction-free writing with folder trees, live cloud sync (.txt / .md), and instant zero-save session restore.</sys:String>
     <sys:String x:Key="About_Close">Close</sys:String>
 
+    <!-- Modal Delete Confirm Dialog -->
+    <sys:String x:Key="DeleteDialog_Title">Move to Recycle Bin</sys:String>
+    <sys:String x:Key="DeleteDialog_Message">Are you sure you want to move this item to the Recycle Bin?</sys:String>
+    <sys:String x:Key="DeleteDialog_RecycleNotice">✓ You can restore it anytime from the Windows Recycle Bin.</sys:String>
+    <sys:String x:Key="DeleteDialog_Confirm">Delete</sys:String>
+    <sys:String x:Key="DeleteDialog_Cancel">Cancel</sys:String>
+
 </ResourceDictionary>

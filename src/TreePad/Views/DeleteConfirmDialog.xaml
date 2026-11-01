@@ -1,0 +1,71 @@
+<ui:FluentWindow x:Class="TreePad.Views.DeleteConfirmDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+        Title="{DynamicResource DeleteDialog_Title}"
+        Width="440" Height="260"
+        MinWidth="400" MinHeight="240"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False"
+        ResizeMode="NoResize"
+        ExtendsContentIntoTitleBar="True"
+        Foreground="{DynamicResource GruvFg}"
+        Background="{DynamicResource GruvBg}"
+        FontFamily="Segoe UI Variable Text, 맑은 고딕, Malgun Gothic, sans-serif">
+
+    <Grid Background="{DynamicResource GruvBg}">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" /> <!-- 타이틀바 -->
+            <RowDefinition Height="*" />    <!-- 본문 내용 -->
+            <RowDefinition Height="Auto" /> <!-- 하단 버튼바 -->
+        </Grid.RowDefinitions>
+
+        <!-- 타이틀바 -->
+        <Border Grid.Row="0" Background="{DynamicResource GruvHeaderBg}" BorderBrush="{DynamicResource GruvBorder}" BorderThickness="0,0,0,1">
+            <ui:TitleBar Title="{DynamicResource DeleteDialog_Title}"
+                         Foreground="{DynamicResource GruvFg}"
+                         ShowMaximize="False" ShowMinimize="False" ShowClose="True"
+                         Padding="12,0,0,0" Height="32" />
+        </Border>
+
+        <!-- 본문 내용 -->
+        <Grid Grid.Row="1" Margin="24,18,24,12">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
+            <!-- 휴지통 아이콘 -->
+            <Border Grid.Column="0" Width="44" Height="44" CornerRadius="22" Background="#20D9534F"
+                    HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,4,16,0">
+                <ui:SymbolIcon Symbol="Delete24" FontSize="22" Foreground="#D9534F" HorizontalAlignment="Center" VerticalAlignment="Center" />
+            </Border>
+
+            <!-- 텍스트 영역 -->
+            <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                <TextBlock x:Name="TargetNameText" Text="메모 이름" FontSize="14.5" FontWeight="SemiBold"
+                           Foreground="{DynamicResource GruvFg}" TextTrimming="CharacterEllipsis" Margin="0,0,0,6" />
+                <TextBlock x:Name="MessageText"
+                           Text="{DynamicResource DeleteDialog_Message}"
+                           FontSize="12.5" Foreground="{DynamicResource GruvFgMuted}"
+                           TextWrapping="Wrap" LineHeight="18" Margin="0,0,0,6" />
+                <TextBlock Text="{DynamicResource DeleteDialog_RecycleNotice}"
+                           FontSize="11.5" Foreground="{DynamicResource GruvAccentGreen}" />
+            </StackPanel>
+        </Grid>
+
+        <!-- 하단 버튼바 -->
+        <Border Grid.Row="2" Background="{DynamicResource GruvPanelBg}" BorderBrush="{DynamicResource GruvBorder}" BorderThickness="0,1,0,0" Padding="16,10">
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button Content="{DynamicResource DeleteDialog_Cancel}" Click="OnCancelClick"
+                        MinWidth="75" Padding="14,6" Margin="0,0,8,0"
+                        Background="{DynamicResource GruvBg}" BorderBrush="{DynamicResource GruvBorder}"
+                        Foreground="{DynamicResource GruvFg}" IsCancel="True" />
+                <Button Content="{DynamicResource DeleteDialog_Confirm}" Click="OnConfirmClick"
+                        MinWidth="85" Padding="16,6"
+                        Background="#D9534F" BorderBrush="#D9534F"
+                        Foreground="#FFFFFF" FontWeight="SemiBold" IsDefault="True" />
+            </StackPanel>
+        </Border>
+    </Grid>
+</ui:FluentWindow>

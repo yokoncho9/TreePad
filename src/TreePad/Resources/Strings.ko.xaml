@@ -87,4 +87,11 @@
     <sys:String x:Key="About_Description">군더더기 없는 가벼운 속도와 계층적 트리 정리, 실시간 클라우드 연동(.txt / .md), 무손실 자동 세션 복원을 경험해 보세요.</sys:String>
     <sys:String x:Key="About_Close">닫기</sys:String>
 
+    <!-- 모달 삭제 확인 대화상자 -->
+    <sys:String x:Key="DeleteDialog_Title">휴지통으로 이동</sys:String>
+    <sys:String x:Key="DeleteDialog_Message">이 항목을 휴지통으로 이동하시겠습니까?</sys:String>
+    <sys:String x:Key="DeleteDialog_RecycleNotice">✓ Windows 휴지통에서 언제든 복원할 수 있습니다.</sys:String>
+    <sys:String x:Key="DeleteDialog_Confirm">삭제</sys:String>
+    <sys:String x:Key="DeleteDialog_Cancel">취소</sys:String>
+
 </ResourceDictionary>

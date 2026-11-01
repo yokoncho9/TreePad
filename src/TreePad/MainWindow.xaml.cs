@@ -37,6 +37,7 @@ namespace TreePad
             _viewModel.ActiveTabChanging += OnViewModelActiveTabChanging;
             _viewModel.ActiveTabChanged += OnViewModelActiveTabChanged;
             _viewModel.ExternalContentReloaded += OnViewModelExternalContentReloaded;
+            _viewModel.ConfirmDeleteCallback = ShowDeleteConfirmModal;
 
             Loaded += MainWindow_Loaded;
             Closing += MainWindow_Closing;
@@ -275,6 +276,16 @@ namespace TreePad
                 Owner = this
             };
             aboutDialog.ShowDialog();
+        }
+
+        private bool ShowDeleteConfirmModal(string targetName, bool isFolder)
+        {
+            var dialog = new Views.DeleteConfirmDialog(targetName, isFolder)
+            {
+                Owner = this
+            };
+            dialog.ShowDialog();
+            return dialog.IsConfirmed;
         }
 
         private void OnEditorTextChanged(object sender, TextChangedEventArgs e)
