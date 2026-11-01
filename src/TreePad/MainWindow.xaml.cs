@@ -1,10 +1,12 @@
 using System;
 using System.ComponentModel;
+using System.IO;
 using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Threading;
 using TreePad.ViewModels;
 
 namespace TreePad
@@ -24,7 +26,7 @@ namespace TreePad
             _viewModel = new MainViewModel();
             DataContext = _viewModel;
 
-            // Windows 11 시스템 테마 자동 감지 및 적용
+            // Windows 11 시스템 테마 감시 연결
             try
             {
                 Wpf.Ui.Appearance.SystemThemeWatcher.Watch(this);
@@ -32,6 +34,9 @@ namespace TreePad
             catch { }
 
             _viewModel.PropertyChanged += ViewModel_PropertyChanged;
+            _viewModel.ActiveTabChanging += OnViewModelActiveTabChanging;
+            _viewModel.ActiveTabChanged += OnViewModelActiveTabChanged;
+            _viewModel.ExternalContentReloaded += OnViewModelExternalContentReloaded;
 
             Loaded += MainWindow_Loaded;
             Closing += MainWindow_Closing;
@@ -43,6 +48,48 @@ namespace TreePad
             {
                 UpdateSidebarVisibility(_viewModel.IsSidebarVisible);
             }
+        }
+
+        private void OnViewModelActiveTabChanging(NoteTabViewModel? outgoingTab)
+        {
+            if (outgoingTab != null)
+            {
+                outgoingTab.CaretIndex = EditorTextBox.CaretIndex;
+                outgoingTab.VerticalOffset = EditorTextBox.VerticalOffset;
+                outgoingTab.HorizontalOffset = EditorTextBox.HorizontalOffset;
+            }
+
+            // 탭 전환 중 Text 바인딩 교체가 이전 탭의 Undo 스택에 기록되어 Ctrl+Z 시 다른 메모 내용으로 덮어써지는 현상 방지
+            EditorTextBox.IsUndoEnabled = false;
+        }
+
+        private void OnViewModelActiveTabChanged(NoteTabViewModel? incomingTab)
+        {
+            _lastFindIndex = -1;
+
+            Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() =>
+            {
+                EditorTextBox.IsUndoEnabled = true;
+
+                if (incomingTab != null && _viewModel.ActiveTab == incomingTab)
+                {
+                    int targetCaret = Math.Clamp(incomingTab.CaretIndex, 0, EditorTextBox.Text.Length);
+                    EditorTextBox.CaretIndex = targetCaret;
+                    EditorTextBox.ScrollToVerticalOffset(incomingTab.VerticalOffset);
+                    EditorTextBox.ScrollToHorizontalOffset(incomingTab.HorizontalOffset);
+                    UpdateEditorCursorLineCol();
+                }
+            }));
+        }
+
+        private void OnViewModelExternalContentReloaded()
+        {
+            Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() =>
+            {
+                int safeCaret = Math.Clamp(EditorTextBox.CaretIndex, 0, EditorTextBox.Text.Length);
+                EditorTextBox.CaretIndex = safeCaret;
+                UpdateEditorCursorLineCol();
+            }));
         }
 
         private void UpdateSidebarVisibility(bool isVisible)
@@ -73,18 +120,8 @@ namespace TreePad
             _savedSidebarWidth = config.SidebarWidth >= 180 ? config.SidebarWidth : 280;
             UpdateSidebarVisibility(config.IsSidebarVisible);
 
-            // 이전 창 위치 및 크기 복원
-            if (config.WindowWidth >= MinWidth && config.WindowHeight >= MinHeight)
-            {
-                Width = config.WindowWidth;
-                Height = config.WindowHeight;
-            }
-
-            if (config.WindowLeft >= 0 && config.WindowTop >= 0)
-            {
-                Left = config.WindowLeft;
-                Top = config.WindowTop;
-            }
+            // 다중 모니터 및 화면 이탈 방지 안전 좌표 복원
+            ApplySafeWindowBounds(config.WindowLeft, config.WindowTop, config.WindowWidth, config.WindowHeight);
 
             if (config.IsMaximized)
             {
@@ -92,12 +129,59 @@ namespace TreePad
             }
 
             // 에디터 커서 위치 복원
-            if (config.CaretIndex > 0 && config.CaretIndex <= EditorTextBox.Text.Length)
+            int initialCaret = _viewModel.ActiveTab?.CaretIndex > 0 ? _viewModel.ActiveTab.CaretIndex : config.CaretIndex;
+            if (initialCaret > 0 && initialCaret <= EditorTextBox.Text.Length)
             {
-                EditorTextBox.CaretIndex = config.CaretIndex;
+                EditorTextBox.CaretIndex = initialCaret;
+                int lineIdx = EditorTextBox.GetLineIndexFromCharacterIndex(initialCaret);
+                if (lineIdx > 0)
+                {
+                    EditorTextBox.ScrollToLine(lineIdx);
+                }
             }
 
-            EditorTextBox.Focus();
+            UpdateEditorCursorLineCol();
+
+            if (_viewModel.HasOpenTabs)
+            {
+                EditorTextBox.Focus();
+            }
+        }
+
+        private void ApplySafeWindowBounds(double savedLeft, double savedTop, double savedWidth, double savedHeight)
+        {
+            double vLeft = SystemParameters.VirtualScreenLeft;
+            double vTop = SystemParameters.VirtualScreenTop;
+            double vWidth = SystemParameters.VirtualScreenWidth;
+            double vHeight = SystemParameters.VirtualScreenHeight;
+
+            double targetWidth = (savedWidth >= MinWidth && !double.IsNaN(savedWidth)) ? Math.Min(savedWidth, vWidth) : 1100;
+            double targetHeight = (savedHeight >= MinHeight && !double.IsNaN(savedHeight)) ? Math.Min(savedHeight, vHeight) : 720;
+
+            Width = targetWidth;
+            Height = targetHeight;
+
+            // 창 상단 타이틀 영역이 실제 연결된 모니터(VirtualScreen) 안에 최소 120x60px 이상 걸쳐 있는지 검증
+            bool isValidPosition = !double.IsNaN(savedLeft) && !double.IsNaN(savedTop)
+                && (savedLeft + targetWidth >= vLeft + 120)
+                && (savedLeft <= vLeft + vWidth - 120)
+                && (savedTop >= vTop - 10)
+                && (savedTop <= vTop + vHeight - 60);
+
+            if (isValidPosition)
+            {
+                Left = savedLeft;
+                Top = savedTop;
+            }
+            else
+            {
+                // 보조 모니터 분리 등으로 화면 밖 좌표일 경우 주 모니터 작업 영역 중앙에 안전 배치
+                Rect workArea = SystemParameters.WorkArea;
+                Width = Math.Min(targetWidth, workArea.Width);
+                Height = Math.Min(targetHeight, workArea.Height);
+                Left = workArea.Left + Math.Max(0, (workArea.Width - Width) / 2);
+                Top = workArea.Top + Math.Max(0, (workArea.Height - Height) / 2);
+            }
         }
 
         private void MainWindow_Closing(object? sender, CancelEventArgs e)
@@ -109,7 +193,7 @@ namespace TreePad
             double height = isMaximized ? RestoreBounds.Height : Height;
 
             double currentSidebarWidth = _viewModel.IsSidebarVisible && SidebarColumn.ActualWidth > 50
-                ? SidebarColumn.ActualWidth 
+                ? SidebarColumn.ActualWidth
                 : _savedSidebarWidth;
 
             _viewModel.SidebarWidth = currentSidebarWidth;
@@ -118,14 +202,12 @@ namespace TreePad
 
         private void OnTabsScrollViewerScrollChanged(object sender, ScrollChangedEventArgs e)
         {
-            // 좌측에 숨겨진 탭이 있으면 좌측 화살표 표시
-            TabScrollLeftBtn.Visibility = TabsScrollViewer.HorizontalOffset > 1 
-                ? Visibility.Visible 
+            TabScrollLeftBtn.Visibility = TabsScrollViewer.HorizontalOffset > 1
+                ? Visibility.Visible
                 : Visibility.Collapsed;
 
-            // 오른쪽에 숨겨진 탭이 있으면 우측 화살표 표시
-            TabScrollRightBtn.Visibility = (TabsScrollViewer.ScrollableWidth - TabsScrollViewer.HorizontalOffset) > 1 
-                ? Visibility.Visible 
+            TabScrollRightBtn.Visibility = (TabsScrollViewer.ScrollableWidth - TabsScrollViewer.HorizontalOffset) > 1
+                ? Visibility.Visible
                 : Visibility.Collapsed;
         }
 
@@ -154,6 +236,16 @@ namespace TreePad
             {
                 _viewModel.ActiveTab = tab;
                 elem.BringIntoView();
+            }
+        }
+
+        private void OnTabItemMouseDown(object sender, MouseButtonEventArgs e)
+        {
+            // 마우스 휠(가운데 버튼) 클릭으로 탭 빠르게 닫기 지원
+            if (e.ChangedButton == MouseButton.Middle && sender is FrameworkElement elem && elem.DataContext is NoteTabViewModel tab)
+            {
+                _viewModel.CloseTab(tab);
+                e.Handled = true;
             }
         }
 
@@ -188,11 +280,58 @@ namespace TreePad
             _viewModel.NotifyContentChanged();
         }
 
+        private void OnEditorPreviewMouseWheel(object sender, MouseWheelEventArgs e)
+        {
+            if ((Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control)
+            {
+                if (e.Delta > 0)
+                {
+                    _viewModel.ZoomIn();
+                }
+                else if (e.Delta < 0)
+                {
+                    _viewModel.ZoomOut();
+                }
+                e.Handled = true;
+            }
+        }
+
         private void OnTreeViewSelectedItemChanged(object sender, RoutedPropertyChangedEventArgs<object> e)
         {
             if (e.NewValue is TreeItemViewModel item)
             {
                 _viewModel.SelectedItem = item;
+            }
+        }
+
+        private void OnTreeViewPreviewKeyDown(object sender, KeyEventArgs e)
+        {
+            // 인라인 이름 편집 TextBox 입력 중일 때는 트리 단축키(Delete/F2/Esc) 가로채기 금지
+            if (e.OriginalSource is TextBox)
+            {
+                return;
+            }
+
+            if (e.Key == Key.F2 && Keyboard.Modifiers == ModifierKeys.None)
+            {
+                if (_viewModel.SelectedItem != null)
+                {
+                    _viewModel.RenameItem(_viewModel.SelectedItem);
+                    e.Handled = true;
+                }
+            }
+            else if (e.Key == Key.Delete && Keyboard.Modifiers == ModifierKeys.None)
+            {
+                if (_viewModel.SelectedItem != null)
+                {
+                    _viewModel.DeleteSelectedItem();
+                    e.Handled = true;
+                }
+            }
+            else if (e.Key == Key.Escape && Keyboard.Modifiers == ModifierKeys.None)
+            {
+                _viewModel.ClearTreeSelection();
+                e.Handled = true;
             }
         }
 
@@ -203,12 +342,12 @@ namespace TreePad
             {
                 if (dep is TreeViewItem)
                 {
-                    return; // 아이템을 클릭한 경우는 정상 처리
+                    return;
                 }
-                dep = System.Windows.Media.VisualTreeHelper.GetParent(dep);
+                dep = VisualTreeHelper.GetParent(dep);
             }
 
-            // 트리의 빈 공간(여백)을 클릭하면 선택 해제(최상단 모드)
+            // 트리의 빈 공간 클릭 시 선택 해제 (ROOT 모드)
             _viewModel.ClearTreeSelection();
         }
 
@@ -222,12 +361,38 @@ namespace TreePad
             }
         }
 
+        private void PrepareInlineRenameTextBox(TextBox textBox)
+        {
+            if (textBox.DataContext is TreeItemViewModel item && item.IsEditing)
+            {
+                textBox.Text = item.Name;
+                textBox.Focus();
+
+                // .md 등 확장자가 표시된 파일인 경우 확장자 앞 본문 이름만 스마트 선택
+                if (!item.IsFolder && item.Name.EndsWith(".md", StringComparison.OrdinalIgnoreCase) && item.Name.Length > 3)
+                {
+                    textBox.Select(0, item.Name.Length - 3);
+                }
+                else
+                {
+                    textBox.SelectAll();
+                }
+            }
+        }
+
         private void OnItemNameEditLoaded(object sender, RoutedEventArgs e)
         {
             if (sender is TextBox textBox)
             {
-                textBox.Focus();
-                textBox.SelectAll();
+                PrepareInlineRenameTextBox(textBox);
+            }
+        }
+
+        private void OnItemNameEditIsVisibleChanged(object sender, DependencyPropertyChangedEventArgs e)
+        {
+            if (sender is TextBox textBox && textBox.IsVisible)
+            {
+                Dispatcher.BeginInvoke(DispatcherPriority.Input, new Action(() => PrepareInlineRenameTextBox(textBox)));
             }
         }
 
@@ -243,6 +408,7 @@ namespace TreePad
                 else if (e.Key == Key.Escape)
                 {
                     item.IsEditing = false;
+                    textBox.Text = item.Name;
                     e.Handled = true;
                 }
             }
@@ -261,35 +427,58 @@ namespace TreePad
 
         private void OnEditorSelectionChanged(object sender, RoutedEventArgs e)
         {
-            int caretIndex = EditorTextBox.CaretIndex;
-            int line = EditorTextBox.GetLineIndexFromCharacterIndex(caretIndex);
-            int lineCharIndex = EditorTextBox.GetCharacterIndexFromLineIndex(line);
-            int col = caretIndex - lineCharIndex;
+            UpdateEditorCursorLineCol();
+        }
 
-            _viewModel.UpdateCursorPosition(line + 1, col + 1);
+        private void UpdateEditorCursorLineCol()
+        {
+            try
+            {
+                int caretIndex = Math.Clamp(EditorTextBox.CaretIndex, 0, EditorTextBox.Text.Length);
+                int line = EditorTextBox.GetLineIndexFromCharacterIndex(caretIndex);
+                if (line < 0) line = 0;
+                int lineCharIndex = EditorTextBox.GetCharacterIndexFromLineIndex(line);
+                if (lineCharIndex < 0) lineCharIndex = 0;
+                int col = Math.Max(0, caretIndex - lineCharIndex);
+
+                _viewModel.UpdateCursorPosition(line + 1, col + 1);
+            }
+            catch
+            {
+                _viewModel.UpdateCursorPosition(1, 1);
+            }
         }
 
         private void OnWindowPreviewKeyDown(object sender, KeyEventArgs e)
         {
             if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.F)
             {
-                ShowFindBar(showReplace: false);
+                if (_viewModel.HasOpenTabs)
+                {
+                    ShowFindBar(showReplace: false);
+                }
                 e.Handled = true;
             }
             else if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.H)
             {
-                ShowFindBar(showReplace: true);
+                if (_viewModel.HasOpenTabs)
+                {
+                    ShowFindBar(showReplace: true);
+                }
                 e.Handled = true;
             }
             else if (e.Key == Key.F3)
             {
-                if (Keyboard.Modifiers == ModifierKeys.Shift)
+                if (_viewModel.HasOpenTabs)
                 {
-                    FindPrevious();
-                }
-                else
-                {
-                    FindNext();
+                    if (Keyboard.Modifiers == ModifierKeys.Shift)
+                    {
+                        FindPrevious();
+                    }
+                    else
+                    {
+                        FindNext();
+                    }
                 }
                 e.Handled = true;
             }
@@ -380,7 +569,10 @@ namespace TreePad
         private void HideFindBar()
         {
             FindBar.Visibility = Visibility.Collapsed;
-            EditorTextBox.Focus();
+            if (_viewModel.HasOpenTabs)
+            {
+                EditorTextBox.Focus();
+            }
         }
 
         private void OnCloseFindBarClick(object sender, RoutedEventArgs e)
@@ -464,6 +656,8 @@ namespace TreePad
                 _lastFindIndex = foundIndex;
                 EditorTextBox.Focus();
                 EditorTextBox.Select(foundIndex, query.Length);
+                int lineIdx = EditorTextBox.GetLineIndexFromCharacterIndex(foundIndex);
+                if (lineIdx >= 0) EditorTextBox.ScrollToLine(lineIdx);
                 FindStatusText.Text = TreePad.Services.LocalizationService.Instance.GetFindLocation(foundIndex + 1);
             }
             else
@@ -499,6 +693,8 @@ namespace TreePad
                 _lastFindIndex = foundIndex;
                 EditorTextBox.Focus();
                 EditorTextBox.Select(foundIndex, query.Length);
+                int lineIdx = EditorTextBox.GetLineIndexFromCharacterIndex(foundIndex);
+                if (lineIdx >= 0) EditorTextBox.ScrollToLine(lineIdx);
                 FindStatusText.Text = TreePad.Services.LocalizationService.Instance.GetFindLocation(foundIndex + 1);
             }
             else
@@ -520,7 +716,6 @@ namespace TreePad
 
             string replaceWith = ReplaceInputBox.Text ?? string.Empty;
 
-            // 현재 선택된 텍스트가 검색어와 일치하는지 확인
             if (!string.IsNullOrEmpty(EditorTextBox.SelectedText) &&
                 string.Equals(EditorTextBox.SelectedText, query, StringComparison.CurrentCultureIgnoreCase))
             {
@@ -532,7 +727,6 @@ namespace TreePad
             }
             else
             {
-                // 아직 선택되지 않았으면 먼저 찾기
                 FindNext();
             }
         }
@@ -571,18 +765,23 @@ namespace TreePad
         }
 
         // ==========================================
-        // 🌟 트리 항목 드래그 앤 드롭 (Drag & Drop) 🌟
+        // 🌟 트리 항목 드래그 앤 드롭 (ROOT 바 포함) 🌟
         // ==========================================
 
         private void OnTreeViewPreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {
+            if (e.OriginalSource is TextBox)
+            {
+                _draggedItem = null;
+                return;
+            }
             _dragStartPoint = e.GetPosition(null);
             _draggedItem = FindTreeItemFromVisual(e.OriginalSource as DependencyObject);
         }
 
         private void OnTreeViewPreviewMouseMove(object sender, MouseEventArgs e)
         {
-            if (e.LeftButton != MouseButtonState.Pressed || _draggedItem == null) return;
+            if (e.LeftButton != MouseButtonState.Pressed || _draggedItem == null || _draggedItem.IsEditing) return;
 
             Point currentPoint = e.GetPosition(null);
             Vector diff = _dragStartPoint - currentPoint;
@@ -597,9 +796,56 @@ namespace TreePad
                 finally
                 {
                     ClearDragOver();
+                    ResetRootBarHighlight();
                     _draggedItem = null;
                 }
             }
+        }
+
+        private void OnRootBarDragOver(object sender, DragEventArgs e)
+        {
+            if (!e.Data.GetDataPresent(typeof(TreeItemViewModel)))
+            {
+                e.Effects = DragDropEffects.None;
+                e.Handled = true;
+                return;
+            }
+
+            ClearDragOver();
+            RootBarBorder.Background = new SolidColorBrush(Color.FromArgb(0x25, 0xD9, 0x6B, 0x27));
+            RootBarBorder.BorderBrush = (Brush)FindResource("GruvAccentOrange");
+            e.Effects = DragDropEffects.Move;
+            e.Handled = true;
+        }
+
+        private void OnRootBarDragLeave(object sender, DragEventArgs e)
+        {
+            ResetRootBarHighlight();
+        }
+
+        private void OnRootBarDrop(object sender, DragEventArgs e)
+        {
+            try
+            {
+                if (!e.Data.GetDataPresent(typeof(TreeItemViewModel))) return;
+                if (e.Data.GetData(typeof(TreeItemViewModel)) is TreeItemViewModel sourceItem)
+                {
+                    _viewModel.MoveItem(sourceItem, null);
+                }
+            }
+            finally
+            {
+                ResetRootBarHighlight();
+                ClearDragOver();
+                _draggedItem = null;
+                e.Handled = true;
+            }
+        }
+
+        private void ResetRootBarHighlight()
+        {
+            RootBarBorder.Background = (Brush)FindResource("GruvPanelBg");
+            RootBarBorder.BorderBrush = Brushes.Transparent;
         }
 
         private void OnTreeViewDragOver(object sender, DragEventArgs e)
@@ -622,7 +868,6 @@ namespace TreePad
                 return;
             }
 
-            // 시각적 피드백: 타겟 아이템 하이라이트
             if (_currentDropTarget != targetItem)
             {
                 ClearDragOver();
@@ -717,15 +962,11 @@ namespace TreePad
         {
             bool hasSelection = EditorTextBox.SelectionLength > 0;
 
-            // 1. 선택이 있을 때만 "복사", "잘라내기" 표시
             MenuCopy.Visibility = hasSelection ? Visibility.Visible : Visibility.Collapsed;
             MenuCut.Visibility = hasSelection ? Visibility.Visible : Visibility.Collapsed;
-
-            // 2. "전체선택", "붙여넣기"는 항상 표시
             MenuSelectAll.Visibility = Visibility.Visible;
             MenuPaste.Visibility = Visibility.Visible;
 
-            // 클립보드에 텍스트가 있을 때만 붙여넣기 활성화
             try
             {
                 MenuPaste.IsEnabled = Clipboard.ContainsText();

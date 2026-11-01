@@ -12,8 +12,23 @@ namespace TreePad.Services
     {
         private string _rootDirectory;
         private readonly SemaphoreSlim _fileLock = new(1, 1);
+        private long _suppressWatcherUntilTicks = 0;
 
         public string RootDirectory => _rootDirectory;
+
+        public bool IsWatcherSuppressed => DateTime.UtcNow.Ticks < Interlocked.Read(ref _suppressWatcherUntilTicks);
+
+        public void SuppressWatcher(int milliseconds = 1200)
+        {
+            long targetTicks = DateTime.UtcNow.AddMilliseconds(milliseconds).Ticks;
+            long current;
+            do
+            {
+                current = Interlocked.Read(ref _suppressWatcherUntilTicks);
+                if (current >= targetTicks) break;
+            }
+            while (Interlocked.CompareExchange(ref _suppressWatcherUntilTicks, targetTicks, current) != current);
+        }
 
         public StorageService(string? customPath = null)
         {
@@ -33,9 +48,32 @@ namespace TreePad.Services
         public void SetRootDirectory(string newPath)
         {
             if (string.IsNullOrWhiteSpace(newPath)) return;
+            SuppressWatcher(2000);
             Directory.CreateDirectory(newPath);
             _rootDirectory = newPath;
             EnsureStorageInitialized();
+        }
+
+        public static bool IsSupportedNoteFile(string filePath)
+        {
+            if (string.IsNullOrWhiteSpace(filePath)) return false;
+            string fileName = Path.GetFileName(filePath);
+            if (string.IsNullOrEmpty(fileName) || fileName.StartsWith('.') || fileName.StartsWith("~$"))
+                return false;
+
+            string ext = Path.GetExtension(fileName);
+            return string.Equals(ext, ".txt", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(ext, ".md", StringComparison.OrdinalIgnoreCase);
+        }
+
+        public static string GetNoteDisplayName(string filePath)
+        {
+            string ext = Path.GetExtension(filePath);
+            if (string.Equals(ext, ".txt", StringComparison.OrdinalIgnoreCase))
+            {
+                return Path.GetFileNameWithoutExtension(filePath);
+            }
+            return Path.GetFileName(filePath);
         }
 
         private void EnsureStorageInitialized()
@@ -47,7 +85,7 @@ namespace TreePad.Services
                     Directory.CreateDirectory(_rootDirectory);
                 }
 
-                // 폴더가 비어 있으면 시작 환영 메모 및 예시 폴더 생성
+                // 폴더가 완전히 비어 있을 때만 시작 환영 메모 및 예시 폴더 생성
                 if (Directory.GetFileSystemEntries(_rootDirectory).Length == 0)
                 {
                     CreateInitialWelcomeData();
@@ -63,65 +101,17 @@ namespace TreePad.Services
         {
             try
             {
-                string welcomeFile = Path.Combine(_rootDirectory, "환영합니다 (TreePad 사용법).txt");
-                string welcomeText =
-@"# 🌲 TreePad - 나만의 트리형 텍스트 메모장
+                SuppressWatcher(2000);
+                var loc = LocalizationService.Instance;
 
-TreePad에 오신 것을 환영합니다!
-Windows 11 64-bit 전용으로 제작된 가볍고 군더더기 없는 순수 텍스트 메모장입니다.
+                string welcomeFile = Path.Combine(_rootDirectory, loc.GetWelcomeFileName());
+                File.WriteAllText(welcomeFile, loc.GetWelcomeNoteContent(), Encoding.UTF8);
 
-======================================================================
-1. 핵심 특징
-======================================================================
-• 순수 텍스트 (Plain Text):
-  - 서식 없는 깔끔한 텍스트만 지원하여 속도가 빠르고 눈이 편안합니다.
-• 무손실 자동 세션 (Zero-Save):
-  - 별도로 저장 버튼을 누를 필요가 없습니다.
-  - 타이핑하는 즉시 자동으로 저장되며, 프로그램을 닫았다가 다시 열면
-    마지막에 보고 있던 메모와 커서 위치가 100% 그대로 복원됩니다.
-• 무설치 단일 실행 파일:
-  - 프레임워크나 런타임 설치 없이 단일 실행 파일 하나로 어디서나 작동합니다.
-
-======================================================================
-2. 주요 단축키
-======================================================================
-• 새 메모 생성: Ctrl + N
-• 새 폴더 생성: Ctrl + Shift + N
-• 이름 바꾸기:  F2
-• 삭제:        Delete
-• 줄바꿈 토글:  Alt + Z
-• 글꼴 크기:    Ctrl + 마우스 휠
-• 내용 검색:    Ctrl + F
-
-======================================================================
-3. 스마트폰 (안드로이드) 및 클라우드 연동 가이드
-======================================================================
-TreePad의 모든 메모는 사용자 PC의 표준 폴더와 UTF-8 .txt 파일로 저장됩니다.
-따라서 다음과 같이 클라우드를 활용하면 모바일에서도 끊김 없이 작업할 수 있습니다:
-
-1) 클라우드 드라이브 동기화 폴더 설정:
-   - 상단 메뉴의 [설정 / 저장소 폴더 변경]을 눌러 저장 위치를
-     Google Drive, OneDrive, 또는 Dropbox의 동기화 폴더로 지정하세요.
-2) 안드로이드 스마트폰에서 확인:
-   - 스마트폰의 Google Drive 또는 OneDrive 앱에서 폴더와 .txt 파일을 바로 열고 편집할 수 있습니다.
-   - 마크다운/텍스트 뷰어(예: Markor, QuickEdit 등)를 사용하시면 더욱 편리합니다.
-3) 향후 전용 안드로이드 앱 배포 시:
-   - 동일한 클라우드 폴더를 연동하면 모바일에서도 PC와 동일한 트리 메모장 화면으로 이어갈 수 있습니다!
-";
-
-                File.WriteAllText(welcomeFile, welcomeText, Encoding.UTF8);
-
-                // 안내용 예시 폴더 생성
-                string sampleDir = Path.Combine(_rootDirectory, "업무 및 아이디어");
+                string sampleDir = Path.Combine(_rootDirectory, loc.GetWelcomeSampleFolderName());
                 Directory.CreateDirectory(sampleDir);
 
-                string projectFile = Path.Combine(sampleDir, "신규 프로젝트 아이디어.txt");
-                string projectText =
-@"프로젝트 아이디어 메모:
-1. 심플한 인터페이스 유지
-2. 지연 없는 반응 속도
-3. 신뢰할 수 있는 데이터 보관";
-                File.WriteAllText(projectFile, projectText, Encoding.UTF8);
+                string projectFile = Path.Combine(sampleDir, loc.GetWelcomeSampleNoteName());
+                File.WriteAllText(projectFile, loc.GetWelcomeSampleNoteContent(), Encoding.UTF8);
             }
             catch (Exception ex)
             {
@@ -142,11 +132,21 @@ TreePad의 모든 메모는 사용자 PC의 표준 폴더와 UTF-8 .txt 파일�
         {
             try
             {
-                // 하위 폴더 탐색
+                // 하위 폴더 탐색 (숨김/시스템 및 '.'으로 시작하는 내부 폴더 제외)
                 var subDirs = Directory.GetDirectories(currentDir);
                 foreach (var dir in subDirs)
                 {
                     string dirName = Path.GetFileName(dir);
+                    if (string.IsNullOrEmpty(dirName) || dirName.StartsWith('.')) continue;
+
+                    try
+                    {
+                        var attr = File.GetAttributes(dir);
+                        if ((attr & FileAttributes.Hidden) != 0 || (attr & FileAttributes.System) != 0)
+                            continue;
+                    }
+                    catch { }
+
                     string relPath = Path.GetRelativePath(_rootDirectory, dir);
                     var folderItem = new TreeItemViewModel(dirName, dir, relPath, true, parent)
                     {
@@ -158,17 +158,19 @@ TreePad의 모든 메모는 사용자 PC의 표준 폴더와 UTF-8 .txt 파일�
                     folderItem.SortChildren();
                 }
 
-                // 하위 텍스트 파일 (.txt) 탐색
-                var files = Directory.GetFiles(currentDir, "*.txt");
+                // 하위 텍스트 파일 (.txt 및 .md) 탐색
+                var files = Directory.GetFiles(currentDir);
                 foreach (var file in files)
                 {
-                    string fileName = Path.GetFileNameWithoutExtension(file);
+                    if (!IsSupportedNoteFile(file)) continue;
+
+                    string displayName = GetNoteDisplayName(file);
                     string relPath = Path.GetRelativePath(_rootDirectory, file);
-                    var fileItem = new TreeItemViewModel(fileName, file, relPath, false, parent);
+                    var fileItem = new TreeItemViewModel(displayName, file, relPath, false, parent);
                     targetList.Add(fileItem);
                 }
 
-                // 정렬 (폴더 우선, 그 후 가나다순)
+                // 정렬 (폴더 우선, 그 후 이름순)
                 if (targetList is List<TreeItemViewModel> list)
                 {
                     list.Sort((a, b) =>
@@ -187,16 +189,33 @@ TreePad의 모든 메모는 사용자 PC의 표준 폴더와 UTF-8 .txt 파일�
             }
         }
 
+        public string ReadNoteContentSync(string filePath)
+        {
+            if (!File.Exists(filePath)) return string.Empty;
+
+            _fileLock.Wait();
+            try
+            {
+                using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+                using var reader = new StreamReader(stream, Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
+                return reader.ReadToEnd();
+            }
+            finally
+            {
+                _fileLock.Release();
+            }
+        }
+
         public async Task<string> ReadNoteContentAsync(string filePath)
         {
             if (!File.Exists(filePath)) return string.Empty;
 
-            await _fileLock.WaitAsync();
+            await _fileLock.WaitAsync().ConfigureAwait(false);
             try
             {
-                using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-                using var reader = new StreamReader(stream, Encoding.UTF8);
-                return await reader.ReadToEndAsync();
+                using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+                using var reader = new StreamReader(stream, Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
+                return await reader.ReadToEndAsync().ConfigureAwait(false);
             }
             catch (Exception ex)
             {
@@ -209,24 +228,24 @@ TreePad의 모든 메모는 사용자 PC의 표준 폴더와 UTF-8 .txt 파일�
             }
         }
 
-        public async Task SaveNoteContentAsync(string filePath, string content)
+        public void SaveNoteContentSync(string filePath, string content)
         {
-            await _fileLock.WaitAsync();
+            if (string.IsNullOrWhiteSpace(filePath)) return;
+
+            _fileLock.Wait();
             try
             {
-                string dir = Path.GetDirectoryName(filePath)!;
-                if (!Directory.Exists(dir))
+                SuppressWatcher();
+                string? dir = Path.GetDirectoryName(filePath);
+                if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
                 {
                     Directory.CreateDirectory(dir);
                 }
 
                 string tempFile = filePath + ".tmp";
-                await File.WriteAllTextAsync(tempFile, content, Encoding.UTF8);
+                File.WriteAllText(tempFile, content, Encoding.UTF8);
                 File.Move(tempFile, filePath, overwrite: true);
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"Save error for {filePath}: {ex.Message}");
+                SuppressWatcher();
             }
             finally
             {
@@ -234,35 +253,77 @@ TreePad의 모든 메모는 사용자 PC의 표준 폴더와 UTF-8 .txt 파일�
             }
         }
 
-        public string CreateNote(string parentDir, string title)
+        public async Task SaveNoteContentAsync(string filePath, string content)
         {
-            string targetDir = string.IsNullOrWhiteSpace(parentDir) || !Directory.Exists(parentDir) 
-                ? _rootDirectory 
+            if (string.IsNullOrWhiteSpace(filePath)) return;
+
+            await _fileLock.WaitAsync().ConfigureAwait(false);
+            try
+            {
+                SuppressWatcher();
+                string? dir = Path.GetDirectoryName(filePath);
+                if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
+                {
+                    Directory.CreateDirectory(dir);
+                }
+
+                string tempFile = filePath + ".tmp";
+                await File.WriteAllTextAsync(tempFile, content, Encoding.UTF8).ConfigureAwait(false);
+                File.Move(tempFile, filePath, overwrite: true);
+                SuppressWatcher();
+            }
+            finally
+            {
+                _fileLock.Release();
+            }
+        }
+
+        public string CreateNote(string parentDir, string? title = null)
+        {
+            SuppressWatcher();
+            string targetDir = string.IsNullOrWhiteSpace(parentDir) || !Directory.Exists(parentDir)
+                ? _rootDirectory
                 : parentDir;
 
-            string safeTitle = GetSafeFileName(title);
-            string baseFileName = string.IsNullOrWhiteSpace(safeTitle) ? "새 메모" : safeTitle;
-            string filePath = Path.Combine(targetDir, $"{baseFileName}.txt");
+            string defaultTitle = LocalizationService.Instance.GetDefaultNoteName();
+            string safeTitle = GetSafeFileName(string.IsNullOrWhiteSpace(title) ? defaultTitle : title);
+            string baseFileName = string.IsNullOrWhiteSpace(safeTitle) ? defaultTitle : safeTitle;
+
+            string ext = ".txt";
+            if (baseFileName.EndsWith(".md", StringComparison.OrdinalIgnoreCase))
+            {
+                ext = ".md";
+                baseFileName = Path.GetFileNameWithoutExtension(baseFileName);
+            }
+            else if (baseFileName.EndsWith(".txt", StringComparison.OrdinalIgnoreCase))
+            {
+                baseFileName = Path.GetFileNameWithoutExtension(baseFileName);
+            }
+
+            string filePath = Path.Combine(targetDir, $"{baseFileName}{ext}");
             int counter = 1;
 
             while (File.Exists(filePath))
             {
-                filePath = Path.Combine(targetDir, $"{baseFileName} ({counter}).txt");
+                filePath = Path.Combine(targetDir, $"{baseFileName} ({counter}){ext}");
                 counter++;
             }
 
-            File.WriteAllText(filePath, "", Encoding.UTF8);
+            File.WriteAllText(filePath, string.Empty, Encoding.UTF8);
+            SuppressWatcher();
             return filePath;
         }
 
-        public string CreateFolder(string parentDir, string name)
+        public string CreateFolder(string parentDir, string? name = null)
         {
-            string targetDir = string.IsNullOrWhiteSpace(parentDir) || !Directory.Exists(parentDir) 
-                ? _rootDirectory 
+            SuppressWatcher();
+            string targetDir = string.IsNullOrWhiteSpace(parentDir) || !Directory.Exists(parentDir)
+                ? _rootDirectory
                 : parentDir;
 
-            string safeName = GetSafeFileName(name);
-            string baseName = string.IsNullOrWhiteSpace(safeName) ? "새 폴더" : safeName;
+            string defaultName = LocalizationService.Instance.GetDefaultFolderName();
+            string safeName = GetSafeFileName(string.IsNullOrWhiteSpace(name) ? defaultName : name);
+            string baseName = string.IsNullOrWhiteSpace(safeName) ? defaultName : safeName;
             string dirPath = Path.Combine(targetDir, baseName);
             int counter = 1;
 
@@ -273,6 +334,7 @@ TreePad의 모든 메모는 사용자 PC의 표준 폴더와 UTF-8 .txt 파일�
             }
 
             Directory.CreateDirectory(dirPath);
+            SuppressWatcher();
             return dirPath;
         }
 
@@ -282,31 +344,71 @@ TreePad의 모든 메모는 사용자 PC의 표준 폴더와 UTF-8 .txt 파일�
             if (string.IsNullOrWhiteSpace(safeName)) return fullPath;
 
             string parentDir = Path.GetDirectoryName(fullPath)!;
-            string newPath = isFolder 
-                ? Path.Combine(parentDir, safeName)
-                : Path.Combine(parentDir, $"{safeName}.txt");
-
-            if (string.Equals(fullPath, newPath, StringComparison.OrdinalIgnoreCase))
-            {
-                return fullPath;
-            }
+            string newPath;
 
             if (isFolder)
             {
-                if (Directory.Exists(newPath)) throw new InvalidOperationException("이미 동일한 이름의 폴더가 존재합니다.");
+                newPath = Path.Combine(parentDir, safeName);
+            }
+            else
+            {
+                if (safeName.EndsWith(".txt", StringComparison.OrdinalIgnoreCase) ||
+                    safeName.EndsWith(".md", StringComparison.OrdinalIgnoreCase))
+                {
+                    newPath = Path.Combine(parentDir, safeName);
+                }
+                else
+                {
+                    string origExt = Path.GetExtension(fullPath);
+                    if (string.IsNullOrEmpty(origExt)) origExt = ".txt";
+                    newPath = Path.Combine(parentDir, $"{safeName}{origExt}");
+                }
+            }
+
+            if (string.Equals(fullPath, newPath, StringComparison.OrdinalIgnoreCase))
+            {
+                // 대소문자만 변경된 경우 허용 (임시 경로 경유)
+                if (!string.Equals(fullPath, newPath, StringComparison.Ordinal))
+                {
+                    SuppressWatcher();
+                    string tempRename = fullPath + ".renametmp_" + Guid.NewGuid().ToString("N")[..6];
+                    if (isFolder)
+                    {
+                        Directory.Move(fullPath, tempRename);
+                        Directory.Move(tempRename, newPath);
+                    }
+                    else
+                    {
+                        File.Move(fullPath, tempRename);
+                        File.Move(tempRename, newPath);
+                    }
+                    SuppressWatcher();
+                    return newPath;
+                }
+                return fullPath;
+            }
+
+            SuppressWatcher();
+            if (isFolder)
+            {
+                if (Directory.Exists(newPath))
+                    throw new InvalidOperationException(LocalizationService.Instance.GetDuplicateFolderError());
                 Directory.Move(fullPath, newPath);
             }
             else
             {
-                if (File.Exists(newPath)) throw new InvalidOperationException("이미 동일한 이름의 메모가 존재합니다.");
+                if (File.Exists(newPath))
+                    throw new InvalidOperationException(LocalizationService.Instance.GetDuplicateNoteError());
                 File.Move(fullPath, newPath);
             }
+            SuppressWatcher();
 
             return newPath;
         }
 
         public void DeleteItem(string fullPath, bool isFolder)
         {
+            SuppressWatcher(2000);
             try
             {
                 if (isFolder)
@@ -333,7 +435,6 @@ TreePad의 모든 메모는 사용자 PC의 표준 폴더와 UTF-8 .txt 파일�
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"Recycle bin delete failed, fallback to permanent delete: {ex.Message}");
-                // Fallback: 휴지통 지원이 안 되는 드라이브/네트워크 경로의 경우 일반 삭제
                 if (isFolder && Directory.Exists(fullPath))
                 {
                     Directory.Delete(fullPath, true);
@@ -342,6 +443,10 @@ TreePad의 모든 메모는 사용자 PC의 표준 폴더와 UTF-8 .txt 파일�
                 {
                     File.Delete(fullPath);
                 }
+            }
+            finally
+            {
+                SuppressWatcher(1500);
             }
         }
 
@@ -357,22 +462,22 @@ TreePad의 모든 메모는 사용자 PC의 표준 폴더와 UTF-8 .txt 파일�
 
             if (string.Equals(sourcePath, destinationPath, StringComparison.OrdinalIgnoreCase))
             {
-                return sourcePath; // 동일 위치면 이동 없음
+                return sourcePath;
             }
 
+            SuppressWatcher();
             if (isFolder)
             {
-                // 자기 자신의 하위 디렉토리로 이동 방지
                 string normalizedSource = Path.GetFullPath(sourcePath).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
                 string normalizedTarget = Path.GetFullPath(targetDirPath).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
                 if (normalizedTarget.StartsWith(normalizedSource, StringComparison.OrdinalIgnoreCase))
                 {
-                    throw new InvalidOperationException("폴더를 자기 자신의 하위 폴더로 이동할 수 없습니다.");
+                    throw new InvalidOperationException(LocalizationService.Instance.GetCannotMoveIntoSubfolderError());
                 }
 
                 if (Directory.Exists(destinationPath))
                 {
-                    throw new InvalidOperationException($"이미 대상 위치에 동일한 이름의 폴더가 존재합니다: {itemName}");
+                    throw new InvalidOperationException(LocalizationService.Instance.GetDuplicateFolderError(itemName));
                 }
 
                 Directory.Move(sourcePath, destinationPath);
@@ -381,11 +486,12 @@ TreePad의 모든 메모는 사용자 PC의 표준 폴더와 UTF-8 .txt 파일�
             {
                 if (File.Exists(destinationPath))
                 {
-                    throw new InvalidOperationException($"이미 대상 위치에 동일한 이름의 메모가 존재합니다: {itemName}");
+                    throw new InvalidOperationException(LocalizationService.Instance.GetDuplicateNoteError(itemName));
                 }
 
                 File.Move(sourcePath, destinationPath);
             }
+            SuppressWatcher();
 
             return destinationPath;
         }

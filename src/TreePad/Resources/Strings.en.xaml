@@ -10,6 +10,7 @@
     <sys:String x:Key="Menu_NewFolder">New Folder</sys:String>
     <sys:String x:Key="Menu_Rename">Rename</sys:String>
     <sys:String x:Key="Menu_Delete">Delete</sys:String>
+    <sys:String x:Key="Menu_Refresh">Refresh</sys:String>
     <sys:String x:Key="Menu_Find">Find</sys:String>
     <sys:String x:Key="Menu_Replace">Replace</sys:String>
     <sys:String x:Key="Menu_WordWrap">Word Wrap</sys:String>
@@ -23,18 +24,29 @@
     <sys:String x:Key="Menu_ToggleSidebar">Toggle Sidebar</sys:String>
     <sys:String x:Key="Menu_About">About TreePad</sys:String>
 
-    <!-- Sidebar & Tooltips -->
-    <sys:String x:Key="Tip_ToggleSidebar">Toggle Sidebar (Ctrl+B)</sys:String>
+    <!-- Sidebar & Tree Context Menu & Tooltips -->
+    <sys:String x:Key="Tip_ToggleSidebar">Collapse Sidebar (Ctrl+B)</sys:String>
     <sys:String x:Key="Tip_ExpandSidebar">Expand Sidebar (Ctrl+B)</sys:String>
     <sys:String x:Key="Tip_Menu">Menu</sys:String>
     <sys:String x:Key="Search_Placeholder">Search notes (title)...</sys:String>
-    <sys:String x:Key="Root_SelectTip">Click to select ROOT</sys:String>
+    <sys:String x:Key="Root_SelectTip">Click to select ROOT (Drop items here to move to top level)</sys:String>
+    <sys:String x:Key="Root_DeselectTip">Deselect to ROOT (Esc or click empty space)</sys:String>
     <sys:String x:Key="Root_Deselect">Deselect</sys:String>
+
     <sys:String x:Key="Tree_NewNote">New Note</sys:String>
     <sys:String x:Key="Tree_NewFolder">New Folder</sys:String>
+    <sys:String x:Key="Tree_NewRootNote">New Note in ROOT</sys:String>
+    <sys:String x:Key="Tree_NewRootFolder">New Folder in ROOT</sys:String>
+    <sys:String x:Key="Tree_ClearSelection">Deselect (ROOT Mode)</sys:String>
+    <sys:String x:Key="Tree_Refresh">Refresh</sys:String>
+    <sys:String x:Key="Tree_Rename">Rename</sys:String>
+    <sys:String x:Key="Tree_Delete">Delete</sys:String>
 
     <!-- Tabs & Editor Toolbar -->
-    <sys:String x:Key="Tab_Close">Close Tab (Ctrl+W)</sys:String>
+    <sys:String x:Key="Tab_PrevTip">Previous Tabs</sys:String>
+    <sys:String x:Key="Tab_NextTip">Next Tabs</sys:String>
+    <sys:String x:Key="Tab_CloseTip">Close Tab (Ctrl+W)</sys:String>
+    <sys:String x:Key="Tab_Close">Close Tab</sys:String>
     <sys:String x:Key="Tab_CloseOthers">Close Other Tabs</sys:String>
     <sys:String x:Key="Tab_CloseAll">Close All Tabs</sys:String>
     <sys:String x:Key="Tip_Find">Find Text (Ctrl+F)</sys:String>
@@ -43,7 +55,7 @@
 
     <!-- Find and Replace Bar -->
     <sys:String x:Key="Find_Label">Find:</sys:String>
-    <sys:String x:Key="Find_Prev">Find Previous (Shift+Enter)</sys:String>
+    <sys:String x:Key="Find_Prev">Find Previous (Shift+Enter / Shift+F3)</sys:String>
     <sys:String x:Key="Find_Next">Find Next (Enter / F3)</sys:String>
     <sys:String x:Key="Replace_Label">Replace:</sys:String>
     <sys:String x:Key="Replace_Btn">Replace</sys:String>
@@ -61,7 +73,8 @@
 
     <!-- Empty State -->
     <sys:String x:Key="Empty_Title">No notes open</sys:String>
-    <sys:String x:Key="Empty_Desc">Select a note from the tree or click [New Note (Ctrl+N)] in the menu.</sys:String>
+    <sys:String x:Key="Empty_Desc">Select a note from the tree or start a new note below.</sys:String>
+    <sys:String x:Key="Empty_NewNoteBtn">+ New Note (Ctrl+N)</sys:String>
 
     <!-- Bottom Status Bar -->
     <sys:String x:Key="Status_StoragePath">Storage: </sys:String>

@@ -20,6 +20,10 @@ namespace TreePad.ViewModels
         [ObservableProperty]
         private int _caretIndex;
 
+        public double VerticalOffset { get; set; }
+        public double HorizontalOffset { get; set; }
+        public bool IsDirty { get; set; }
+
         private readonly MainViewModel _mainVm;
 
         public NoteTabViewModel(string filePath, string relativePath, string title, string content, MainViewModel mainVm)

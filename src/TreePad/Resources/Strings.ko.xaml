@@ -10,6 +10,7 @@
     <sys:String x:Key="Menu_NewFolder">새 폴더</sys:String>
     <sys:String x:Key="Menu_Rename">이름 바꾸기</sys:String>
     <sys:String x:Key="Menu_Delete">삭제</sys:String>
+    <sys:String x:Key="Menu_Refresh">새로고침</sys:String>
     <sys:String x:Key="Menu_Find">찾기</sys:String>
     <sys:String x:Key="Menu_Replace">바꾸기</sys:String>
     <sys:String x:Key="Menu_WordWrap">자동 줄바꿈</sys:String>
@@ -23,19 +24,30 @@
     <sys:String x:Key="Menu_ToggleSidebar">사이드바 접기/펼치기</sys:String>
     <sys:String x:Key="Menu_About">TreePad 정보</sys:String>
 
-    <!-- 사이드바 & 툴팁 -->
+    <!-- 사이드바 & 트리 컨텍스트 메뉴 & 툴팁 -->
     <sys:String x:Key="Tip_ToggleSidebar">사이드바 접기 (Ctrl+B)</sys:String>
     <sys:String x:Key="Tip_ExpandSidebar">사이드바 펼치기 (Ctrl+B)</sys:String>
     <sys:String x:Key="Tip_Menu">메뉴</sys:String>
     <sys:String x:Key="Search_Placeholder">메모 검색 (제목)...</sys:String>
-    <sys:String x:Key="Root_SelectTip">클릭하여 ROOT(최상단) 선택</sys:String>
+    <sys:String x:Key="Root_SelectTip">클릭하여 ROOT 선택 (항목을 여기에 드롭하면 최상위로 이동)</sys:String>
+    <sys:String x:Key="Root_DeselectTip">ROOT(최상단)으로 선택 해제 (Esc 키 또는 빈 공간 클릭)</sys:String>
     <sys:String x:Key="Root_Deselect">선택 해제</sys:String>
+
     <sys:String x:Key="Tree_NewNote">새 메모 만들기</sys:String>
     <sys:String x:Key="Tree_NewFolder">새 폴더 만들기</sys:String>
+    <sys:String x:Key="Tree_NewRootNote">ROOT에 새 메모</sys:String>
+    <sys:String x:Key="Tree_NewRootFolder">ROOT에 새 폴더</sys:String>
+    <sys:String x:Key="Tree_ClearSelection">선택 해제 (ROOT 모드)</sys:String>
+    <sys:String x:Key="Tree_Refresh">새로고침</sys:String>
+    <sys:String x:Key="Tree_Rename">이름 바꾸기</sys:String>
+    <sys:String x:Key="Tree_Delete">삭제</sys:String>
 
     <!-- 탭 & 에디터 툴바 -->
-    <sys:String x:Key="Tab_Close">탭 닫기 (Ctrl+W)</sys:String>
-    <sys:String x:Key="Tab_CloseOthers">다른 탭 닫기</sys:String>
+    <sys:String x:Key="Tab_PrevTip">이전 탭 보기</sys:String>
+    <sys:String x:Key="Tab_NextTip">다음 탭 보기</sys:String>
+    <sys:String x:Key="Tab_CloseTip">탭 닫기 (Ctrl+W)</sys:String>
+    <sys:String x:Key="Tab_Close">탭 닫기</sys:String>
+    <sys:String x:Key="Tab_CloseOthers">다른 탭 모두 닫기</sys:String>
     <sys:String x:Key="Tab_CloseAll">모든 탭 닫기</sys:String>
     <sys:String x:Key="Tip_Find">텍스트 찾기 (Ctrl+F)</sys:String>
     <sys:String x:Key="Tip_Replace">텍스트 찾아 바꾸기 (Ctrl+H)</sys:String>
@@ -43,7 +55,7 @@
 
     <!-- 찾기 및 바꾸기 바 -->
     <sys:String x:Key="Find_Label">찾기:</sys:String>
-    <sys:String x:Key="Find_Prev">이전 찾기 (Shift+Enter)</sys:String>
+    <sys:String x:Key="Find_Prev">이전 찾기 (Shift+Enter / Shift+F3)</sys:String>
     <sys:String x:Key="Find_Next">다음 찾기 (Enter / F3)</sys:String>
     <sys:String x:Key="Replace_Label">바꾸기:</sys:String>
     <sys:String x:Key="Replace_Btn">바꾸기</sys:String>
@@ -61,7 +73,8 @@
 
     <!-- 빈 상태 안내 -->
     <sys:String x:Key="Empty_Title">열린 메모가 없습니다</sys:String>
-    <sys:String x:Key="Empty_Desc">좌측 트리에서 메모를 클릭하거나 메뉴의 [새 메모 (Ctrl+N)]를 누르세요.</sys:String>
+    <sys:String x:Key="Empty_Desc">좌측 트리에서 메모를 선택하거나 아래 버튼으로 새 메모를 시작하세요.</sys:String>
+    <sys:String x:Key="Empty_NewNoteBtn">+ 새 메모 만들기 (Ctrl+N)</sys:String>
 
     <!-- 하단 상태표시줄 -->
     <sys:String x:Key="Status_StoragePath">저장 위치: </sys:String>

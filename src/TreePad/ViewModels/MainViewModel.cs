@@ -15,15 +15,30 @@ namespace TreePad.ViewModels
 {
     public partial class MainViewModel : ObservableObject
     {
+        private static readonly double[] FontSizeSteps = { 10, 11, 12, 13, 14, 15, 16, 18, 20, 22, 24, 28, 32, 36, 40 };
+
         private readonly StorageService _storageService;
         private readonly SessionService _sessionService;
         private readonly SessionConfig _sessionConfig;
         private readonly DispatcherTimer _autoSaveTimer;
+        private readonly DispatcherTimer _externalSyncTimer;
+        private FileSystemWatcher? _fileWatcher;
+
         private bool _isSwitchingTab = false;
+        private bool _isUpdatingExternalContent = false;
+        private bool _suppressAutoOpenOnSelect = false;
+        private SaveStateKind _currentSaveState = SaveStateKind.Ready;
+        private string? _lastSaveErrorDetail = null;
+
+        public event Action<NoteTabViewModel?>? ActiveTabChanging;
+        public event Action<NoteTabViewModel?>? ActiveTabChanged;
+        public event Action? ExternalContentReloaded;
 
         public ObservableCollection<TreeItemViewModel> RootItems { get; } = new();
         public ObservableCollection<NoteTabViewModel> Tabs { get; } = new();
-        public List<string> AvailableFontSizes { get; } = new() { "11pt", "12pt", "13pt", "14pt", "15pt", "16pt", "18pt", "20pt", "24pt", "28pt" };
+        public List<string> AvailableFontSizes { get; } = FontSizeSteps.Select(s => $"{(int)s}pt").ToList();
+
+        public bool IsSwitchingOrExternalUpdate => _isSwitchingTab || _isUpdatingExternalContent;
 
         [ObservableProperty]
         private string _selectedFontSize = "15pt";
@@ -38,7 +53,7 @@ namespace TreePad.ViewModels
         private bool _hasOpenTabs = false;
 
         [ObservableProperty]
-        private string _saveStatus = "준비";
+        private string _saveStatus = string.Empty;
 
         [ObservableProperty]
         private string _searchQuery = string.Empty;
@@ -59,25 +74,31 @@ namespace TreePad.ViewModels
         private int _currentColumn = 1;
 
         [ObservableProperty]
+        private string _charCountText = string.Empty;
+
+        [ObservableProperty]
+        private string _charCountNoSpacesText = string.Empty;
+
+        [ObservableProperty]
+        private string _lineCountText = string.Empty;
+
+        [ObservableProperty]
+        private string _cursorPositionText = string.Empty;
+
+        [ObservableProperty]
         private double _fontSize = 15.0;
 
         [ObservableProperty]
         private bool _wordWrap = true;
 
         [ObservableProperty]
-        private string _wordWrapStatusText = "줄바꿈 ON";
+        private string _wordWrapStatusText = string.Empty;
 
         [ObservableProperty]
-        private string _wordWrapTooltip = "자동 줄바꿈: 켜짐 (Alt+Z)";
+        private string _wordWrapTooltip = string.Empty;
 
         [ObservableProperty]
         private bool _isDarkMode = false;
-
-        [ObservableProperty]
-        private string _themeIcon = "WeatherMoon20";
-
-        [ObservableProperty]
-        private string _themeTooltip = "테마 전환: 다크 모드로 변경";
 
         [ObservableProperty]
         private double _sidebarWidth = 280;
@@ -118,13 +139,17 @@ namespace TreePad.ViewModels
             _storageService = new StorageService(_sessionConfig.StorageDirectory);
             _storageDirectoryPath = _storageService.RootDirectory;
 
-            _fontSize = _sessionConfig.FontSize;
-            _selectedFontSize = $"{(int)Math.Round(_fontSize)}pt";
+            double initialSize = SnapToNearestFontSize(_sessionConfig.FontSize > 0 ? _sessionConfig.FontSize : 15.0);
+            _fontSize = initialSize;
+            _selectedFontSize = $"{(int)Math.Round(initialSize)}pt";
             _wordWrap = _sessionConfig.WordWrap;
             UpdateWordWrapTexts();
 
-            _sidebarWidth = _sessionConfig.SidebarWidth > 50 ? _sessionConfig.SidebarWidth : 280;
+            _sidebarWidth = _sessionConfig.SidebarWidth >= 180 ? _sessionConfig.SidebarWidth : 280;
             _isSidebarVisible = _sessionConfig.IsSidebarVisible;
+
+            SetSaveState(SaveStateKind.Ready);
+            UpdateFormattedStatusBarTexts();
 
             // 자동 저장 디바운스 타이머 (300ms)
             _autoSaveTimer = new DispatcherTimer
@@ -137,15 +162,257 @@ namespace TreePad.ViewModels
                 await CommitAutoSaveAsync();
             };
 
+            // 외부(클라우드/탐색기) 파일 변경 감지 디바운스 타이머 (500ms)
+            _externalSyncTimer = new DispatcherTimer
+            {
+                Interval = TimeSpan.FromMilliseconds(500)
+            };
+            _externalSyncTimer.Tick += (s, e) =>
+            {
+                _externalSyncTimer.Stop();
+                HandleExternalFileSystemChanges();
+            };
+
             LoadTreeAndRestoreSession();
+            InitializeFileWatcher(_storageService.RootDirectory);
         }
 
         public SessionConfig GetSessionConfig() => _sessionConfig;
 
+        private static double SnapToNearestFontSize(double requested)
+        {
+            double best = 15.0;
+            double minDiff = double.MaxValue;
+            foreach (double step in FontSizeSteps)
+            {
+                double diff = Math.Abs(step - requested);
+                if (diff < minDiff)
+                {
+                    minDiff = diff;
+                    best = step;
+                }
+            }
+            return best;
+        }
+
+        private void SetSaveState(SaveStateKind state, string? errorDetail = null)
+        {
+            _currentSaveState = state;
+            _lastSaveErrorDetail = errorDetail;
+            SaveStatus = LocalizationService.Instance.GetSaveStatusText(state, errorDetail);
+        }
+
+        private void UpdateFormattedStatusBarTexts()
+        {
+            var loc = LocalizationService.Instance;
+            CharCountText = loc.GetCharCountPrimary(CharacterCount);
+            CharCountNoSpacesText = loc.GetCharCountNoSpaces(CharacterCountNoSpaces);
+            LineCountText = loc.GetLineCountText(LineCount);
+            CursorPositionText = loc.GetCursorPosText(CurrentLine, CurrentColumn);
+        }
+
+        // ==========================================
+        // 🌟 실시간 외부 변경 감지 (FileSystemWatcher) 🌟
+        // ==========================================
+
+        private void InitializeFileWatcher(string directoryPath)
+        {
+            DisposeFileWatcher();
+
+            if (string.IsNullOrWhiteSpace(directoryPath) || !Directory.Exists(directoryPath))
+                return;
+
+            try
+            {
+                _fileWatcher = new FileSystemWatcher(directoryPath)
+                {
+                    IncludeSubdirectories = true,
+                    NotifyFilter = NotifyFilters.FileName | NotifyFilters.DirectoryName | NotifyFilters.LastWrite | NotifyFilters.Size
+                };
+
+                _fileWatcher.Created += OnExternalFileEvent;
+                _fileWatcher.Deleted += OnExternalFileEvent;
+                _fileWatcher.Changed += OnExternalFileEvent;
+                _fileWatcher.Renamed += OnExternalFileRenamed;
+                _fileWatcher.EnableRaisingEvents = true;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"FileSystemWatcher init failed: {ex.Message}");
+            }
+        }
+
+        private void DisposeFileWatcher()
+        {
+            if (_fileWatcher != null)
+            {
+                try
+                {
+                    _fileWatcher.EnableRaisingEvents = false;
+                    _fileWatcher.Created -= OnExternalFileEvent;
+                    _fileWatcher.Deleted -= OnExternalFileEvent;
+                    _fileWatcher.Changed -= OnExternalFileEvent;
+                    _fileWatcher.Renamed -= OnExternalFileRenamed;
+                    _fileWatcher.Dispose();
+                }
+                catch { }
+                _fileWatcher = null;
+            }
+        }
+
+        private static bool IsTemporaryOrHiddenPath(string? path)
+        {
+            if (string.IsNullOrWhiteSpace(path)) return true;
+            string name = Path.GetFileName(path);
+            if (string.IsNullOrEmpty(name)) return false;
+            return name.EndsWith(".tmp", StringComparison.OrdinalIgnoreCase)
+                || name.Contains(".renametmp_", StringComparison.OrdinalIgnoreCase)
+                || name.StartsWith('.')
+                || name.StartsWith("~$", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(name, "desktop.ini", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private void OnExternalFileEvent(object sender, FileSystemEventArgs e)
+        {
+            if (_storageService.IsWatcherSuppressed) return;
+            if (IsTemporaryOrHiddenPath(e.FullPath)) return;
+
+            ScheduleExternalSync();
+        }
+
+        private void OnExternalFileRenamed(object sender, RenamedEventArgs e)
+        {
+            if (_storageService.IsWatcherSuppressed) return;
+            if (IsTemporaryOrHiddenPath(e.FullPath) && IsTemporaryOrHiddenPath(e.OldFullPath)) return;
+
+            ScheduleExternalSync();
+        }
+
+        private void ScheduleExternalSync()
+        {
+            Application.Current?.Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() =>
+            {
+                if (_storageService.IsWatcherSuppressed) return;
+                _externalSyncTimer.Stop();
+                _externalSyncTimer.Start();
+            }));
+        }
+
+        private bool IsAnyItemEditing(IEnumerable<TreeItemViewModel> items)
+        {
+            foreach (var item in items)
+            {
+                if (item.IsEditing) return true;
+                if (item.IsFolder && IsAnyItemEditing(item.Children)) return true;
+            }
+            return false;
+        }
+
+        private void HandleExternalFileSystemChanges()
+        {
+            if (_storageService.IsWatcherSuppressed) return;
+
+            // 사용자가 F2 인라인 이름 편집 중이면 완료될 때까지 대기
+            if (IsAnyItemEditing(RootItems))
+            {
+                _externalSyncTimer.Start();
+                return;
+            }
+
+            // 1. 트리 구조 무간섭 리로드 (포커스를 뺏지 않고 펼침/선택/검색필터 유지)
+            string? prevSelectedRel = SelectedItem?.RelativePath;
+            var expanded = CollectExpandedPaths(RootItems);
+            var loaded = _storageService.LoadTree(expanded);
+
+            RootItems.Clear();
+            foreach (var item in loaded)
+            {
+                RootItems.Add(item);
+            }
+
+            if (!string.IsNullOrWhiteSpace(SearchQuery))
+            {
+                FilterTree(RootItems, SearchQuery.Trim().ToLowerInvariant());
+            }
+
+            if (!string.IsNullOrEmpty(prevSelectedRel))
+            {
+                var restoredSel = FindItemByRelativePath(RootItems, prevSelectedRel);
+                if (restoredSel != null)
+                {
+                    restoredSel.IsSelected = true;
+                    _suppressAutoOpenOnSelect = true;
+                    try
+                    {
+                        SelectedItem = restoredSel;
+                    }
+                    finally
+                    {
+                        _suppressAutoOpenOnSelect = false;
+                    }
+                }
+            }
+
+            // 2. 열려 있는 탭 중 외부에서 수정되거나 삭제된 파일 반영
+            bool anyTabUpdated = false;
+            var openTabsSnapshot = Tabs.ToList();
+            foreach (var tab in openTabsSnapshot)
+            {
+                if (tab.IsDirty) continue; // 사용자가 현재 수정 중인 미저장 탭은 덮어쓰지 않음
+
+                if (!File.Exists(tab.FilePath))
+                {
+                    CloseTabInternal(tab, saveBeforeClose: false);
+                    continue;
+                }
+
+                try
+                {
+                    string diskContent = _storageService.ReadNoteContentSync(tab.FilePath);
+                    if (!string.Equals(diskContent, tab.Content, StringComparison.Ordinal))
+                    {
+                        _isUpdatingExternalContent = true;
+                        try
+                        {
+                            tab.Content = diskContent;
+                            if (tab == ActiveTab)
+                            {
+                                UpdateTextStatistics(diskContent);
+                                anyTabUpdated = true;
+                            }
+                        }
+                        finally
+                        {
+                            _isUpdatingExternalContent = false;
+                        }
+                    }
+                }
+                catch { }
+            }
+
+            if (anyTabUpdated)
+            {
+                SetSaveState(SaveStateKind.ExternalSynced);
+                ExternalContentReloaded?.Invoke();
+            }
+        }
+
+        [RelayCommand]
+        public void RefreshTree()
+        {
+            FlushDirtyTabsSync();
+            HandleExternalFileSystemChanges();
+            SetSaveState(SaveStateKind.Refreshed);
+        }
+
+        // ==========================================
+        // 🌟 세션 복원 및 탭 관리 🌟
+        // ==========================================
+
         private void LoadTreeAndRestoreSession()
         {
             RootItems.Clear();
-            var expandedPaths = new HashSet<string>(_sessionConfig.ExpandedFolders);
+            var expandedPaths = new HashSet<string>(_sessionConfig.ExpandedFolders ?? new List<string>(), StringComparer.OrdinalIgnoreCase);
             var loaded = _storageService.LoadTree(expandedPaths);
 
             foreach (var item in loaded)
@@ -153,13 +420,11 @@ namespace TreePad.ViewModels
                 RootItems.Add(item);
             }
 
-            // 세션에서 열려 있던 탭들 복원
             Tabs.Clear();
-            var tabsToRestore = _sessionConfig.OpenTabs != null && _sessionConfig.OpenTabs.Count > 0 
-                ? _sessionConfig.OpenTabs 
+            var tabsToRestore = _sessionConfig.OpenTabs != null && _sessionConfig.OpenTabs.Count > 0
+                ? _sessionConfig.OpenTabs
                 : new List<string>();
 
-            // 저장된 탭이 없고 LastSelectedFilePath만 있는 경우 호환
             if (tabsToRestore.Count == 0 && !string.IsNullOrEmpty(_sessionConfig.LastSelectedFilePath))
             {
                 tabsToRestore.Add(_sessionConfig.LastSelectedFilePath);
@@ -174,7 +439,6 @@ namespace TreePad.ViewModels
                 }
             }
 
-            // 활성 탭 결정
             NoteTabViewModel? targetTab = null;
             if (!string.IsNullOrEmpty(_sessionConfig.LastSelectedFilePath))
             {
@@ -188,11 +452,15 @@ namespace TreePad.ViewModels
 
             if (targetTab != null)
             {
+                // 마지막 활성 탭 커서 복원 보정
+                if (targetTab.CaretIndex == 0 && _sessionConfig.CaretIndex > 0)
+                {
+                    targetTab.CaretIndex = _sessionConfig.CaretIndex;
+                }
                 ActiveTab = targetTab;
             }
             else
             {
-                // 열린 탭이 전혀 없으면 트리의 첫 번째 메모를 탭으로 오픈
                 var firstNote = FindFirstNote(RootItems);
                 if (firstNote != null)
                 {
@@ -201,6 +469,10 @@ namespace TreePad.ViewModels
             }
 
             HasOpenTabs = Tabs.Count > 0;
+            if (!HasOpenTabs)
+            {
+                SetSaveState(SaveStateKind.NoOpenNote);
+            }
         }
 
         private TreeItemViewModel? FindItemByRelativePath(IEnumerable<TreeItemViewModel> items, string relPath)
@@ -234,7 +506,7 @@ namespace TreePad.ViewModels
 
         partial void OnSelectedItemChanged(TreeItemViewModel? value)
         {
-            if (value != null && !value.IsFolder)
+            if (!_suppressAutoOpenOnSelect && value != null && !value.IsFolder)
             {
                 OpenNoteInTab(value);
             }
@@ -270,6 +542,18 @@ namespace TreePad.ViewModels
             }
         }
 
+        partial void OnActiveTabChanging(NoteTabViewModel? value)
+        {
+            // 탭이 바뀌기 직전: 현재 에디터 커서/스크롤 저장 이벤트 발생 및 미저장 텍스트 즉시 플러시
+            ActiveTabChanging?.Invoke(ActiveTab);
+
+            if (ActiveTab != null && ActiveTab.IsDirty)
+            {
+                _autoSaveTimer.Stop();
+                FlushDirtyTabsSync();
+            }
+        }
+
         partial void OnActiveTabChanged(NoteTabViewModel? value)
         {
             _isSwitchingTab = true;
@@ -283,12 +567,13 @@ namespace TreePad.ViewModels
                     }
                     _sessionConfig.LastSelectedFilePath = value.RelativePath;
                     UpdateTextStatistics(value.Content);
-                    SaveStatus = "저장됨";
+                    SetSaveState(SaveStateKind.Saved);
                 }
                 else
                 {
                     UpdateTextStatistics(string.Empty);
-                    SaveStatus = "열린 메모 없음";
+                    UpdateCursorPosition(1, 1);
+                    SetSaveState(SaveStateKind.NoOpenNote);
                 }
                 HasOpenTabs = (value != null);
             }
@@ -296,14 +581,17 @@ namespace TreePad.ViewModels
             {
                 _isSwitchingTab = false;
             }
+
+            ActiveTabChanged?.Invoke(value);
         }
 
         public void NotifyContentChanged()
         {
-            if (_isSwitchingTab || ActiveTab == null) return;
+            if (_isSwitchingTab || _isUpdatingExternalContent || ActiveTab == null) return;
 
+            ActiveTab.IsDirty = true;
             UpdateTextStatistics(ActiveTab.Content);
-            SaveStatus = "입력 중...";
+            SetSaveState(SaveStateKind.Typing);
             _autoSaveTimer.Stop();
             _autoSaveTimer.Start();
         }
@@ -315,6 +603,7 @@ namespace TreePad.ViewModels
                 CharacterCount = 0;
                 CharacterCountNoSpaces = 0;
                 LineCount = 1;
+                UpdateFormattedStatusBarTexts();
                 return;
             }
 
@@ -327,13 +616,13 @@ namespace TreePad.ViewModels
                 if (text[i] == '\n') lines++;
             }
             LineCount = lines;
+            UpdateFormattedStatusBarTexts();
         }
 
         public void OpenNoteInTab(TreeItemViewModel note)
         {
             if (note.IsFolder) return;
 
-            // 이미 열려 있는 탭인지 확인
             var existing = Tabs.FirstOrDefault(t => string.Equals(t.FilePath, note.FullPath, StringComparison.OrdinalIgnoreCase));
             if (existing != null)
             {
@@ -351,15 +640,21 @@ namespace TreePad.ViewModels
             {
                 if (File.Exists(note.FullPath))
                 {
-                    content = File.ReadAllText(note.FullPath, System.Text.Encoding.UTF8);
+                    content = _storageService.ReadNoteContentSync(note.FullPath);
                 }
             }
             catch (Exception ex)
             {
-                content = $"파일을 읽는 중 오류 발생: {ex.Message}";
+                content = LocalizationService.Instance.GetFileReadFailed(ex.Message);
             }
 
             var tab = new NoteTabViewModel(note.FullPath, note.RelativePath, note.Name, content, this);
+            if (_sessionConfig.TabCaretPositions != null &&
+                _sessionConfig.TabCaretPositions.TryGetValue(note.RelativePath, out int savedCaret))
+            {
+                tab.CaretIndex = Math.Clamp(savedCaret, 0, content.Length);
+            }
+
             Tabs.Add(tab);
             HasOpenTabs = true;
 
@@ -371,21 +666,29 @@ namespace TreePad.ViewModels
 
         public void CloseTab(NoteTabViewModel tab)
         {
-            // 닫기 전 변경 내용 저장
+            CloseTabInternal(tab, saveBeforeClose: true);
+        }
+
+        private void CloseTabInternal(NoteTabViewModel tab, bool saveBeforeClose)
+        {
             _autoSaveTimer.Stop();
-            try
+            if (saveBeforeClose && tab.IsDirty && File.Exists(tab.FilePath))
             {
-                if (File.Exists(tab.FilePath))
+                try
                 {
-                    File.WriteAllText(tab.FilePath, tab.Content, System.Text.Encoding.UTF8);
+                    _storageService.SaveNoteContentSync(tab.FilePath, tab.Content);
+                    tab.IsDirty = false;
                 }
+                catch { }
             }
-            catch { }
 
             int index = Tabs.IndexOf(tab);
+            if (index < 0) return;
+
+            bool wasActive = (ActiveTab == tab);
             Tabs.Remove(tab);
 
-            if (ActiveTab == tab)
+            if (wasActive)
             {
                 if (Tabs.Count > 0)
                 {
@@ -431,19 +734,55 @@ namespace TreePad.ViewModels
             ActiveTab = keepTab;
         }
 
+        private void FlushDirtyTabsSync()
+        {
+            foreach (var tab in Tabs)
+            {
+                if (!tab.IsDirty) continue;
+                try
+                {
+                    _storageService.SaveNoteContentSync(tab.FilePath, tab.Content);
+                    tab.IsDirty = false;
+                }
+                catch (Exception ex)
+                {
+                    SetSaveState(SaveStateKind.Error, ex.Message);
+                }
+            }
+        }
+
         private async Task CommitAutoSaveAsync()
         {
-            if (ActiveTab == null || _isSwitchingTab) return;
+            var dirtyTabs = Tabs.Where(t => t.IsDirty).ToList();
+            if (dirtyTabs.Count == 0) return;
 
-            SaveStatus = "저장 중...";
+            SetSaveState(SaveStateKind.Saving);
             try
             {
-                await _storageService.SaveNoteContentAsync(ActiveTab.FilePath, ActiveTab.Content);
-                SaveStatus = "저장됨";
+                foreach (var tab in dirtyTabs)
+                {
+                    string snapshot = tab.Content;
+                    tab.IsDirty = false;
+                    await _storageService.SaveNoteContentAsync(tab.FilePath, snapshot);
+                    // 저장 도중 추가 입력이 발생했으면 다시 Dirty 상태 유지
+                    if (!string.Equals(tab.Content, snapshot, StringComparison.Ordinal))
+                    {
+                        tab.IsDirty = true;
+                    }
+                }
+
+                if (Tabs.Any(t => t.IsDirty))
+                {
+                    _autoSaveTimer.Start();
+                }
+                else
+                {
+                    SetSaveState(SaveStateKind.Saved);
+                }
             }
             catch (Exception ex)
             {
-                SaveStatus = $"저장 실패: {ex.Message}";
+                SetSaveState(SaveStateKind.Error, ex.Message);
             }
         }
 
@@ -451,6 +790,7 @@ namespace TreePad.ViewModels
         {
             CurrentLine = line;
             CurrentColumn = column;
+            CursorPositionText = LocalizationService.Instance.GetCursorPosText(line, column);
         }
 
         partial void OnSearchQueryChanged(string value)
@@ -492,18 +832,24 @@ namespace TreePad.ViewModels
             return anyMatch;
         }
 
+        // ==========================================
+        // 🌟 메모 / 폴더 생성, 이름 변경, 삭제, 이동 🌟
+        // ==========================================
+
         [RelayCommand]
         public void CreateNewNote()
         {
             string parentDir = GetSelectedDirectory();
             try
             {
-                string newFilePath = _storageService.CreateNote(parentDir, "새 메모");
+                string newFilePath = _storageService.CreateNote(parentDir);
                 RefreshTreeAndSelect(newFilePath);
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"메모 생성 중 오류 발생: {ex.Message}", "오류", MessageBoxButton.OK, MessageBoxImage.Error);
+                MessageBox.Show(LocalizationService.Instance.GetCreateNoteFailed(ex.Message),
+                                LocalizationService.Instance.GetErrorTitle(),
+                                MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 
@@ -513,12 +859,14 @@ namespace TreePad.ViewModels
             string parentDir = GetSelectedDirectory();
             try
             {
-                string newDirPath = _storageService.CreateFolder(parentDir, "새 폴더");
+                string newDirPath = _storageService.CreateFolder(parentDir);
                 RefreshTreeAndSelect(newDirPath);
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"폴더 생성 중 오류 발생: {ex.Message}", "오류", MessageBoxButton.OK, MessageBoxImage.Error);
+                MessageBox.Show(LocalizationService.Instance.GetCreateFolderFailed(ex.Message),
+                                LocalizationService.Instance.GetErrorTitle(),
+                                MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 
@@ -527,12 +875,14 @@ namespace TreePad.ViewModels
         {
             try
             {
-                string newFilePath = _storageService.CreateNote(_storageService.RootDirectory, "새 메모");
+                string newFilePath = _storageService.CreateNote(_storageService.RootDirectory);
                 RefreshTreeAndSelect(newFilePath);
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"최상단 새 메모 생성 실패: {ex.Message}", "오류", MessageBoxButton.OK, MessageBoxImage.Error);
+                MessageBox.Show(LocalizationService.Instance.GetCreateNoteFailed(ex.Message),
+                                LocalizationService.Instance.GetErrorTitle(),
+                                MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 
@@ -541,12 +891,14 @@ namespace TreePad.ViewModels
         {
             try
             {
-                string newDirPath = _storageService.CreateFolder(_storageService.RootDirectory, "새 폴더");
+                string newDirPath = _storageService.CreateFolder(_storageService.RootDirectory);
                 RefreshTreeAndSelect(newDirPath);
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"최상단 새 폴더 생성 실패: {ex.Message}", "오류", MessageBoxButton.OK, MessageBoxImage.Error);
+                MessageBox.Show(LocalizationService.Instance.GetCreateFolderFailed(ex.Message),
+                                LocalizationService.Instance.GetErrorTitle(),
+                                MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 
@@ -596,40 +948,64 @@ namespace TreePad.ViewModels
         public void CommitRename(TreeItemViewModel item, string newName)
         {
             item.IsEditing = false;
-            if (string.IsNullOrWhiteSpace(newName) || string.Equals(item.Name, newName, StringComparison.OrdinalIgnoreCase))
+            string trimmed = newName?.Trim() ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(trimmed) || string.Equals(item.Name, trimmed, StringComparison.Ordinal))
             {
                 return;
             }
 
             try
             {
+                FlushDirtyTabsSync();
+
                 string oldPath = item.FullPath;
-                string newPath = _storageService.RenameItem(item.FullPath, newName, item.IsFolder);
-                item.Name = Path.GetFileNameWithoutExtension(newPath);
+                string newPath = _storageService.RenameItem(item.FullPath, trimmed, item.IsFolder);
+                item.Name = item.IsFolder ? Path.GetFileName(newPath) : StorageService.GetNoteDisplayName(newPath);
                 item.FullPath = newPath;
                 item.RelativePath = Path.GetRelativePath(_storageService.RootDirectory, newPath);
 
-                // 열려 있는 탭의 파일 경로 및 제목도 갱신
-                var tab = Tabs.FirstOrDefault(t => string.Equals(t.FilePath, oldPath, StringComparison.OrdinalIgnoreCase));
-                if (tab != null)
+                // 열려 있는 탭 경로 갱신 (폴더 이름 변경 시 하위 파일 탭들까지 모두 갱신)
+                if (item.IsFolder)
                 {
-                    tab.FilePath = newPath;
-                    tab.RelativePath = item.RelativePath;
-                    tab.Title = item.Name;
-                }
-
-                if (item.Parent != null)
-                {
-                    item.Parent.SortChildren();
+                    string oldPrefix = oldPath.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+                    foreach (var tab in Tabs)
+                    {
+                        if (tab.FilePath.StartsWith(oldPrefix, StringComparison.OrdinalIgnoreCase))
+                        {
+                            string subRel = tab.FilePath.Substring(oldPath.Length);
+                            tab.FilePath = newPath + subRel;
+                            tab.RelativePath = Path.GetRelativePath(_storageService.RootDirectory, tab.FilePath);
+                        }
+                    }
+                    RefreshTreeAndSelect(newPath);
                 }
                 else
                 {
-                    SortRootItems();
+                    var tab = Tabs.FirstOrDefault(t => string.Equals(t.FilePath, oldPath, StringComparison.OrdinalIgnoreCase));
+                    if (tab != null)
+                    {
+                        tab.FilePath = newPath;
+                        tab.RelativePath = item.RelativePath;
+                        tab.Title = item.Name;
+                    }
+
+                    if (item.Parent != null)
+                    {
+                        item.Parent.SortChildren();
+                    }
+                    else
+                    {
+                        SortRootItems();
+                    }
                 }
+
+                UpdateCurrentLocationDescription();
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"이름 변경 실패: {ex.Message}", "오류", MessageBoxButton.OK, MessageBoxImage.Warning);
+                MessageBox.Show(LocalizationService.Instance.GetRenameFailed(ex.Message),
+                                LocalizationService.Instance.GetErrorTitle(),
+                                MessageBoxButton.OK, MessageBoxImage.Warning);
             }
         }
 
@@ -652,7 +1028,7 @@ namespace TreePad.ViewModels
         [RelayCommand]
         public void DeleteSelectedItem()
         {
-            if (SelectedItem == null) return;
+            if (SelectedItem == null || SelectedItem.IsEditing) return;
 
             string targetName = SelectedItem.Name;
             bool isFolder = SelectedItem.IsFolder;
@@ -665,26 +1041,36 @@ namespace TreePad.ViewModels
             try
             {
                 string targetPath = SelectedItem.FullPath;
+                string folderPrefix = targetPath.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
 
-                _storageService.DeleteItem(targetPath, isFolder);
-
-                // 삭제된 파일이 열려 있던 탭들 닫기
-                var tabsToRemove = Tabs.Where(t => isFolder 
-                    ? t.FilePath.StartsWith(targetPath, StringComparison.OrdinalIgnoreCase) 
+                var tabsToRemove = Tabs.Where(t => isFolder
+                    ? t.FilePath.StartsWith(folderPrefix, StringComparison.OrdinalIgnoreCase)
                     : string.Equals(t.FilePath, targetPath, StringComparison.OrdinalIgnoreCase))
                     .ToList();
 
+                // 휴지통 이동 전에 미저장 내용을 먼저 기록해 두면 휴지통 복원 시에도 마지막 글자까지 살아있음
                 foreach (var t in tabsToRemove)
                 {
-                    CloseTab(t);
+                    if (t.IsDirty)
+                    {
+                        try { _storageService.SaveNoteContentSync(t.FilePath, t.Content); t.IsDirty = false; } catch { }
+                    }
                 }
 
+                _storageService.DeleteItem(targetPath, isFolder);
+
+                foreach (var t in tabsToRemove)
+                {
+                    CloseTabInternal(t, saveBeforeClose: false);
+                }
+
+                SelectedItem = null;
                 RefreshTreeAndSelect(null);
             }
             catch (Exception ex)
             {
-                MessageBox.Show(LocalizationService.Instance.GetDeleteFailedMessage(ex.Message), 
-                                LocalizationService.Instance.GetErrorTitle(), 
+                MessageBox.Show(LocalizationService.Instance.GetDeleteFailedMessage(ex.Message),
+                                LocalizationService.Instance.GetErrorTitle(),
                                 MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
@@ -693,7 +1079,6 @@ namespace TreePad.ViewModels
         {
             if (sourceItem == null) return false;
 
-            // 이동할 대상 디렉토리 결정
             string targetDirPath;
             if (targetItem == null)
             {
@@ -705,11 +1090,9 @@ namespace TreePad.ViewModels
             }
             else
             {
-                // 타겟이 파일이면 해당 파일이 속한 부모 디렉토리로 이동
                 targetDirPath = Path.GetDirectoryName(targetItem.FullPath) ?? _storageService.RootDirectory;
             }
 
-            // 이미 같은 폴더에 있는 경우
             string currentParentDir = Path.GetDirectoryName(sourceItem.FullPath) ?? _storageService.RootDirectory;
             if (string.Equals(Path.GetFullPath(currentParentDir).TrimEnd(Path.DirectorySeparatorChar),
                               Path.GetFullPath(targetDirPath).TrimEnd(Path.DirectorySeparatorChar),
@@ -720,17 +1103,19 @@ namespace TreePad.ViewModels
 
             try
             {
+                FlushDirtyTabsSync();
+
                 string oldFullPath = sourceItem.FullPath;
                 bool isFolder = sourceItem.IsFolder;
 
                 string newFullPath = _storageService.MoveItem(oldFullPath, targetDirPath, isFolder);
 
-                // 열려 있는 탭 중 해당 파일(또는 폴더 하위 파일)들의 경로 정보 갱신
+                string oldPrefix = oldFullPath.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
                 foreach (var tab in Tabs)
                 {
                     if (isFolder)
                     {
-                        if (tab.FilePath.StartsWith(oldFullPath, StringComparison.OrdinalIgnoreCase))
+                        if (tab.FilePath.StartsWith(oldPrefix, StringComparison.OrdinalIgnoreCase))
                         {
                             string subRel = tab.FilePath.Substring(oldFullPath.Length);
                             tab.FilePath = newFullPath + subRel;
@@ -743,12 +1128,11 @@ namespace TreePad.ViewModels
                         {
                             tab.FilePath = newFullPath;
                             tab.RelativePath = Path.GetRelativePath(_storageService.RootDirectory, newFullPath);
-                            tab.Title = Path.GetFileNameWithoutExtension(newFullPath);
+                            tab.Title = StorageService.GetNoteDisplayName(newFullPath);
                         }
                     }
                 }
 
-                // 타겟 폴더 자동 펼치기
                 if (targetItem != null && targetItem.IsFolder)
                 {
                     targetItem.IsExpanded = true;
@@ -760,8 +1144,8 @@ namespace TreePad.ViewModels
             }
             catch (Exception ex)
             {
-                MessageBox.Show(LocalizationService.Instance.GetMoveFailedMessage(ex.Message), 
-                                LocalizationService.Instance.GetMoveFailedTitle(), 
+                MessageBox.Show(LocalizationService.Instance.GetMoveFailedMessage(ex.Message),
+                                LocalizationService.Instance.GetMoveFailedTitle(),
                                 MessageBoxButton.OK, MessageBoxImage.Warning);
                 return false;
             }
@@ -770,12 +1154,32 @@ namespace TreePad.ViewModels
         public void RefreshTreeAndSelect(string? targetPath)
         {
             var expanded = CollectExpandedPaths(RootItems);
+            if (!string.IsNullOrEmpty(targetPath))
+            {
+                // 새로 생성/이동된 항목의 상위 폴더들은 자동으로 펼쳐 보이게 처리
+                string? parentDir = Path.GetDirectoryName(targetPath);
+                while (!string.IsNullOrEmpty(parentDir) &&
+                       parentDir.StartsWith(_storageService.RootDirectory, StringComparison.OrdinalIgnoreCase) &&
+                       !string.Equals(parentDir.TrimEnd(Path.DirectorySeparatorChar),
+                                      _storageService.RootDirectory.TrimEnd(Path.DirectorySeparatorChar),
+                                      StringComparison.OrdinalIgnoreCase))
+                {
+                    expanded.Add(Path.GetRelativePath(_storageService.RootDirectory, parentDir));
+                    parentDir = Path.GetDirectoryName(parentDir);
+                }
+            }
+
             var loaded = _storageService.LoadTree(expanded);
 
             RootItems.Clear();
             foreach (var item in loaded)
             {
                 RootItems.Add(item);
+            }
+
+            if (!string.IsNullOrWhiteSpace(SearchQuery))
+            {
+                FilterTree(RootItems, SearchQuery.Trim().ToLowerInvariant());
             }
 
             if (!string.IsNullOrEmpty(targetPath))
@@ -803,11 +1207,15 @@ namespace TreePad.ViewModels
                     SelectedItem = found;
                 }
             }
+            else
+            {
+                UpdateCurrentLocationDescription();
+            }
         }
 
         private HashSet<string> CollectExpandedPaths(IEnumerable<TreeItemViewModel> items)
         {
-            var set = new HashSet<string>();
+            var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var item in items)
             {
                 if (item.IsFolder)
@@ -819,6 +1227,10 @@ namespace TreePad.ViewModels
             }
             return set;
         }
+
+        // ==========================================
+        // 🌟 보기 설정, 언어 전환, 확대/축소, 저장소 변경 🌟
+        // ==========================================
 
         [RelayCommand]
         public void ToggleSidebar()
@@ -848,7 +1260,8 @@ namespace TreePad.ViewModels
             LocalizationService.Instance.SetLanguage(lang);
             UpdateLanguageState();
             UpdateWordWrapTexts();
-            SaveStatus = LocalizationService.Instance.GetSaveStatusReady();
+            UpdateFormattedStatusBarTexts();
+            SetSaveState(_currentSaveState, _lastSaveErrorDetail);
             _sessionService.SaveSession(_sessionConfig);
         }
 
@@ -860,59 +1273,12 @@ namespace TreePad.ViewModels
             IsLangEn = string.Equals(CurrentLanguageSetting, "en", StringComparison.OrdinalIgnoreCase);
         }
 
-        private void ApplyConfiguredTheme(string themeStr)
-        {
-            bool isDark = false;
-            if (string.Equals(themeStr, "Dark", StringComparison.OrdinalIgnoreCase))
-            {
-                isDark = true;
-            }
-            else if (string.Equals(themeStr, "Light", StringComparison.OrdinalIgnoreCase))
-            {
-                isDark = false;
-            }
-            else
-            {
-                // 시스템 기본값 감지
-                isDark = Wpf.Ui.Appearance.ApplicationThemeManager.GetAppTheme() == Wpf.Ui.Appearance.ApplicationTheme.Dark;
-            }
-
-            SetThemeState(isDark);
-        }
-
-        [RelayCommand]
-        public void ToggleTheme()
-        {
-            SetThemeState(!IsDarkMode);
-            _sessionConfig.Theme = IsDarkMode ? "Dark" : "Light";
-        }
-
-        private void SetThemeState(bool isDark)
-        {
-            IsDarkMode = isDark;
-            ThemeIcon = isDark ? "WeatherSunny20" : "WeatherMoon20";
-            ThemeTooltip = isDark ? "테마 전환: 라이트 모드로 변경" : "테마 전환: 다크 모드로 변경";
-
-            try
-            {
-                Wpf.Ui.Appearance.ApplicationTheme targetTheme = isDark 
-                    ? Wpf.Ui.Appearance.ApplicationTheme.Dark 
-                    : Wpf.Ui.Appearance.ApplicationTheme.Light;
-                Wpf.Ui.Appearance.ApplicationThemeManager.Apply(targetTheme);
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"Theme apply error: {ex.Message}");
-            }
-        }
-
         partial void OnFontSizeChanged(double value)
         {
             string formatted = $"{(int)Math.Round(value)}pt";
-            if (!string.Equals(_selectedFontSize, formatted, StringComparison.OrdinalIgnoreCase))
+            if (!string.Equals(SelectedFontSize, formatted, StringComparison.OrdinalIgnoreCase))
             {
-                _selectedFontSize = formatted;
-                OnPropertyChanged(nameof(SelectedFontSize));
+                SelectedFontSize = formatted;
             }
         }
 
@@ -930,15 +1296,29 @@ namespace TreePad.ViewModels
         [RelayCommand]
         public void ZoomIn()
         {
-            if (FontSize < 40) FontSize += 2;
-            _sessionConfig.FontSize = FontSize;
+            foreach (double step in FontSizeSteps)
+            {
+                if (step > FontSize + 0.1)
+                {
+                    FontSize = step;
+                    _sessionConfig.FontSize = FontSize;
+                    return;
+                }
+            }
         }
 
         [RelayCommand]
         public void ZoomOut()
         {
-            if (FontSize > 10) FontSize -= 2;
-            _sessionConfig.FontSize = FontSize;
+            for (int i = FontSizeSteps.Length - 1; i >= 0; i--)
+            {
+                if (FontSizeSteps[i] < FontSize - 0.1)
+                {
+                    FontSize = FontSizeSteps[i];
+                    _sessionConfig.FontSize = FontSize;
+                    return;
+                }
+            }
         }
 
         [RelayCommand]
@@ -961,16 +1341,19 @@ namespace TreePad.ViewModels
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"탐색기 열기 실패: {ex.Message}", "오류", MessageBoxButton.OK, MessageBoxImage.Warning);
+                MessageBox.Show(LocalizationService.Instance.GetExplorerFailed(ex.Message),
+                                LocalizationService.Instance.GetErrorTitle(),
+                                MessageBoxButton.OK, MessageBoxImage.Warning);
             }
         }
 
         [RelayCommand]
         public void ChangeStorageLocation()
         {
+            var loc = LocalizationService.Instance;
             var dialog = new Microsoft.Win32.OpenFolderDialog
             {
-                Title = "TreePad 메모 저장 폴더 선택 (Google Drive, OneDrive 동기화 폴더 등)",
+                Title = loc.GetChangeStorageDialogTitle(),
                 InitialDirectory = _storageService.RootDirectory,
                 Multiselect = false
             };
@@ -978,23 +1361,16 @@ namespace TreePad.ViewModels
             if (dialog.ShowDialog() == true)
             {
                 string selectedPath = dialog.FolderName;
-                if (!string.IsNullOrWhiteSpace(selectedPath) && !string.Equals(selectedPath, _storageService.RootDirectory, StringComparison.OrdinalIgnoreCase))
+                if (!string.IsNullOrWhiteSpace(selectedPath) &&
+                    !string.Equals(Path.GetFullPath(selectedPath).TrimEnd(Path.DirectorySeparatorChar),
+                                   Path.GetFullPath(_storageService.RootDirectory).TrimEnd(Path.DirectorySeparatorChar),
+                                   StringComparison.OrdinalIgnoreCase))
                 {
-                    // 1. 현재 타이머 정지 및 열려 있는 모든 탭의 텍스트 즉시 디스크에 무손실 저장
+                    // 1. 열려 있는 모든 탭 즉시 무손실 저장
                     _autoSaveTimer.Stop();
-                    foreach (var tab in Tabs)
-                    {
-                        try
-                        {
-                            if (File.Exists(tab.FilePath))
-                            {
-                                File.WriteAllText(tab.FilePath, tab.Content, System.Text.Encoding.UTF8);
-                            }
-                        }
-                        catch { }
-                    }
+                    FlushDirtyTabsSync();
 
-                    // 2. 현재 열린 탭들과 세션 상태를 저장 객체에 동기화
+                    // 2. 세션 상태 동기화
                     _sessionConfig.OpenTabs = Tabs.Select(t => t.RelativePath).ToList();
                     if (ActiveTab != null)
                     {
@@ -1002,19 +1378,16 @@ namespace TreePad.ViewModels
                     }
                     _sessionConfig.ExpandedFolders = CollectExpandedPaths(RootItems).ToList();
 
-                    // 3. 기존 저장소에 작성된 메모/폴더가 있는지 확인 후 안전 이전(복사)
+                    // 3. 기존 데이터 안전 이전 여부 확인
                     string oldPath = _storageService.RootDirectory;
-                    bool hasExistingData = Directory.Exists(oldPath) && 
+                    bool hasExistingData = Directory.Exists(oldPath) &&
                         (Directory.EnumerateFiles(oldPath).Any() || Directory.EnumerateDirectories(oldPath).Any());
 
                     if (hasExistingData)
                     {
                         var confirm = MessageBox.Show(
-                            $"기존 저장 위치({oldPath})에 있는 메모와 폴더들을 새 위치로 함께 복사하시겠습니까?\n\n" +
-                            "• [예] : 현재 트리에 저장된 모든 메모와 폴더를 새 위치로 손실 없이 안전하게 복사하여 이전합니다. (권장)\n" +
-                            "• [아니오] : 기존 메모는 원본 위치에 보존하고, 새 위치를 빈 작업공간으로 연결합니다.\n" +
-                            "• [취소] : 저장 위치 변경을 취소합니다.",
-                            "메모 데이터 이전 안내",
+                            loc.GetMigrateStorageMessage(oldPath),
+                            loc.GetMigrateStorageTitle(),
                             MessageBoxButton.YesNoCancel,
                             MessageBoxImage.Question);
 
@@ -1027,25 +1400,29 @@ namespace TreePad.ViewModels
                         {
                             try
                             {
+                                _storageService.SuppressWatcher(3000);
                                 CopyDirectoryRecursively(oldPath, selectedPath);
                             }
                             catch (Exception ex)
                             {
-                                MessageBox.Show($"메모 복사 중 일부 항목에서 오류가 발생했습니다: {ex.Message}", "알림", MessageBoxButton.OK, MessageBoxImage.Warning);
+                                MessageBox.Show(loc.GetMigrateCopyWarning(ex.Message),
+                                                loc.GetNoticeTitle(),
+                                                MessageBoxButton.OK, MessageBoxImage.Warning);
                             }
                         }
                     }
 
-                    // 4. 새 저장소 경로 반영 및 세션 저장
+                    // 4. 새 저장소 반영 및 감시자 재연결
+                    DisposeFileWatcher();
                     _storageService.SetRootDirectory(selectedPath);
                     _sessionConfig.StorageDirectory = selectedPath;
                     _sessionService.SaveSession(_sessionConfig);
                     StorageDirectoryPath = selectedPath;
 
-                    // 5. 새 경로 기준으로 트리 및 열려 있던 탭들 손실 없이 재복원
                     Tabs.Clear();
                     LoadTreeAndRestoreSession();
-                    SaveStatus = "저장 위치 변경 완료";
+                    InitializeFileWatcher(selectedPath);
+                    SetSaveState(SaveStateKind.StorageChanged);
                 }
             }
         }
@@ -1053,6 +1430,28 @@ namespace TreePad.ViewModels
         private static void CopyDirectoryRecursively(string sourceDir, string destinationDir)
         {
             Directory.CreateDirectory(destinationDir);
+
+            string normSrc = Path.GetFullPath(sourceDir).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+            string normDst = Path.GetFullPath(destinationDir).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+            if (normDst.StartsWith(normSrc, StringComparison.OrdinalIgnoreCase))
+            {
+                // 상위 폴더를 자신의 하위 폴더로 복사할 때 무한 재귀 방지
+                var filesToCopy = Directory.GetFiles(sourceDir);
+                var dirsToCopy = Directory.GetDirectories(sourceDir)
+                    .Where(d => !string.Equals(Path.GetFullPath(d).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar,
+                                               normDst, StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+
+                foreach (string file in filesToCopy)
+                {
+                    File.Copy(file, Path.Combine(destinationDir, Path.GetFileName(file)), overwrite: true);
+                }
+                foreach (string dir in dirsToCopy)
+                {
+                    CopyDirectoryRecursively(dir, Path.Combine(destinationDir, Path.GetFileName(dir)));
+                }
+                return;
+            }
 
             foreach (string file in Directory.GetFiles(sourceDir))
             {
@@ -1067,12 +1466,18 @@ namespace TreePad.ViewModels
             }
         }
 
-        public void SaveSessionBeforeClose(double left, double top, double width, double height, bool isMaximized, int caretIndex)
+        public void SaveSessionBeforeClose(double left, double top, double width, double height, bool isMaximized, int activeCaretIndex)
         {
-            if (_autoSaveTimer.IsEnabled)
+            _autoSaveTimer.Stop();
+            _externalSyncTimer.Stop();
+            DisposeFileWatcher();
+
+            // 데드락 없는 동기 플러시로 모든 미저장 탭 안전 저장
+            FlushDirtyTabsSync();
+
+            if (ActiveTab != null)
             {
-                _autoSaveTimer.Stop();
-                CommitAutoSaveAsync().GetAwaiter().GetResult();
+                ActiveTab.CaretIndex = activeCaretIndex;
             }
 
             _sessionConfig.WindowLeft = left;
@@ -1082,16 +1487,27 @@ namespace TreePad.ViewModels
             _sessionConfig.IsMaximized = isMaximized;
             _sessionConfig.SidebarWidth = SidebarWidth;
             _sessionConfig.IsSidebarVisible = IsSidebarVisible;
-            _sessionConfig.CaretIndex = caretIndex;
+            _sessionConfig.CaretIndex = activeCaretIndex;
             _sessionConfig.FontSize = FontSize;
             _sessionConfig.WordWrap = WordWrap;
             _sessionConfig.Theme = IsDarkMode ? "Dark" : "Light";
             _sessionConfig.ExpandedFolders = CollectExpandedPaths(RootItems).ToList();
             _sessionConfig.OpenTabs = Tabs.Select(t => t.RelativePath).ToList();
 
+            var caretMap = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            foreach (var tab in Tabs)
+            {
+                caretMap[tab.RelativePath] = tab.CaretIndex;
+            }
+            _sessionConfig.TabCaretPositions = caretMap;
+
             if (ActiveTab != null)
             {
                 _sessionConfig.LastSelectedFilePath = ActiveTab.RelativePath;
+            }
+            else
+            {
+                _sessionConfig.LastSelectedFilePath = null;
             }
 
             _sessionService.SaveSession(_sessionConfig);

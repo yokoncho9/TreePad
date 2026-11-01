@@ -17,6 +17,7 @@ namespace TreePad.Models
         public double SidebarWidth { get; set; } = 280;
         public bool IsSidebarVisible { get; set; } = true;
         public int CaretIndex { get; set; } = 0;
+        public Dictionary<string, int> TabCaretPositions { get; set; } = new();
         public string Theme { get; set; } = "System";
         public double FontSize { get; set; } = 15.0;
         public bool WordWrap { get; set; } = true;

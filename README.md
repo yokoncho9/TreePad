@@ -3,48 +3,57 @@
 > **A minimal, distraction-free hierarchical plain-text notepad for Windows 11.**  
 > *Windows 11 전용 미니멀 계층형 순수 텍스트 트리 메모장*
 
+[![Release](https://img.shields.io/github/v/release/yokoncho9/TreePad?color=D96B27&label=Download)](https://github.com/yokoncho9/TreePad/releases/latest)
 [![.NET 8](https://img.shields.io/badge/.NET-8.0-512BD4?logo=dotnet)](https://dotnet.microsoft.com/)
 [![Windows 11](https://img.shields.io/badge/Platform-Windows%2011%20x64-0078D4?logo=windows)](https://microsoft.com/windows)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Languages](https://img.shields.io/badge/Language-English%20%7C%20한국어-success.svg)]()
 
+<p align="center">
+  <img src="docs/screenshot.png" alt="TreePad Screenshot" width="900" />
+</p>
+
 ---
 
 ## 🌟 Highlights
 
-- **🌲 Hierarchical Tree Structure**: Organize your ideas and documents in folders and notes with drag-and-drop reordering.
-- **⚡ Zero-Save & Instant Restore**: No "Save" dialogs. Typing auto-saves in 300ms, and your open tabs, window size, and exact cursor position restore on relaunch.
-- **🎨 Eye-Pleasing Gruvbox Theme**: Comfortable warm vanilla paper background (`#FCF8EC`) designed for hours of writing without eye strain.
-- **☁️ Cloud & Mobile Friendly**: Notes are stored directly as standard folders and UTF-8 `.txt` files on your disk. Sync effortlessly with **Google Drive**, **OneDrive**, or **Dropbox** to read and write on Android/iOS (using Markor, QuickEdit, etc.).
-- **🌐 Bilingual Support**: Seamlessly switch between **English** and **한국어 (Korean)**. Defaults automatically to your system language.
-- **🗑️ Safe Delete**: Deleted items go to the Windows **Recycle Bin**, so you never lose important notes by accident.
-- **🔍 Fast Find & Replace**: Built-in `Ctrl+F` (Find) and `Ctrl+H` (Find & Replace) with instant match count.
-- **📦 Single-File Executable**: Runs as a self-contained `.exe` with zero installation or runtimes required.
+- **🌲 Hierarchical Tree Structure**: Organize your ideas and documents in nested folders and notes with intuitive **drag-and-drop** reordering (including dropping onto `ROOT` to move to top level).
+- **⚡ Zero-Save & Lossless Session Restore**: No "Save" dialogs needed. Typing auto-saves in 300ms, switching tabs flushes changes immediately, and your open tabs, window layout, and **per-tab cursor/scroll positions** restore on relaunch.
+- **🎨 Eye-Pleasing Gruvbox Paper Theme**: Comfortable warm vanilla cream paper background (`#FCF8EC`) crafted for long hours of distraction-free writing.
+- **☁️ Live Cloud & Mobile Sync (`.txt` & `.md`)**: Notes are stored directly as standard folders and UTF-8 `.txt` / `.md` files on disk. Sync effortlessly via **Google Drive**, **OneDrive**, or **Dropbox** to read and edit on Android/iOS (Markor, Obsidian, QuickEdit, etc.) — TreePad watches the folder in real time (`FileSystemWatcher`) and updates automatically!
+- **🌐 Complete Bilingual UI**: Seamlessly switch between **English** and **한국어 (Korean)** at runtime. Automatically detects your system language on first launch.
+- **🗑️ Safe Delete to Recycle Bin**: Deleted notes and folders move safely to the Windows **Recycle Bin**, preventing accidental permanent loss.
+- **🔍 Fast Find & Replace**: Built-in `Ctrl+F` (Find) and `Ctrl+H` (Find & Replace) with instant match navigation.
+- **📦 Portable Single-File Executable**: Runs as a self-contained `.exe` with single-instance protection and zero runtime installation required.
 
 ---
 
-## ⌨️ Shortcuts
+## 📥 Download & Quick Start
+
+1. Download **`TreePad.exe`** from the [**Latest Release**](https://github.com/yokoncho9/TreePad/releases/latest).
+2. Double-click `TreePad.exe` to run immediately — no installer or .NET runtime required.
+
+> **💡 Note on Windows SmartScreen**  
+> Because `TreePad.exe` is an independent open-source portable binary without a paid commercial EV certificate, Windows may show a *"Windows protected your PC"* prompt on first launch. Click **`More info`** → **`Run anyway`** to start.
+
+---
+
+## ⌨️ Keyboard & Mouse Shortcuts
 
 | Shortcut | Description (English) | 설명 (한국어) |
 |:---:|:---|:---|
 | `Ctrl + N` | Create a new note | 새 메모 만들기 |
 | `Ctrl + Shift + N` | Create a new folder | 새 폴더 만들기 |
-| `F2` | Rename selected item | 이름 바꾸기 |
-| `Delete` | Move item to Recycle Bin | 휴지통으로 안전 삭제 |
+| `F2` | Rename selected tree item | 선택한 항목 이름 바꾸기 |
+| `Delete` | Move selected tree item to Recycle Bin | 선택한 항목 휴지통으로 안전 삭제 |
+| `F5` | Refresh folder tree & external changes | 폴더 트리 및 외부 변경 수동 새로고침 |
 | `Ctrl + F` | Open Find bar | 텍스트 찾기 |
-| `Ctrl + H` | Open Find & Replace | 찾아 바꾸기 |
+| `Ctrl + H` | Open Find & Replace bar | 찾아 바꾸기 |
 | `F3` / `Shift + F3` | Next / Previous match | 다음 / 이전 일치 단어 |
 | `Alt + Z` | Toggle Word Wrap | 자동 줄바꿈 토글 |
-| `Ctrl + B` | Toggle Sidebar | 사이드바 접기 / 펼치기 |
-| `Ctrl + W` | Close active tab | 현재 탭 닫기 |
-| `Ctrl + Wheel` | Zoom in / out font size | 글꼴 크기 확대 / 축소 |
-
----
-
-## 📥 Download & Usage
-
-1. Download the latest `TreePad.exe` from the [Releases](https://github.com/yokoncho9/TreePad/releases) tab.
-2. Double-click `TreePad.exe` to run. No setup or installation is required.
+| `Ctrl + B` | Collapse / Expand Sidebar | 사이드바 접기 / 펼치기 |
+| `Ctrl + W` / `Middle-Click` | Close tab | 탭 닫기 (마우스 휠 클릭 지원) |
+| `Ctrl + Wheel` / `Ctrl + +/-/0` | Zoom font size in / out / reset | 글꼴 크기 확대 / 축소 / 초기화 |
 
 ---
 
@@ -52,35 +61,38 @@
 
 ### Prerequisites
 - [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0)
-- Windows 10/11 64-bit
+- Windows 10 / 11 (64-bit)
 
-### Build & Run
+### Build & Publish
 ```bash
 git clone https://github.com/yokoncho9/TreePad.git
 cd TreePad
-dotnet build -c Release
-```
 
-### Publish Single-File Executable
-```bash
+# Build Release
+dotnet build src/TreePad/TreePad.csproj -c Release
+
+# Publish self-contained single-file executable
 dotnet publish src/TreePad/TreePad.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -o publish
 ```
 
 ---
 
-## 🇰🇷 한국어 소개 (About for Korean Users)
+## 🇰🇷 한국어 소개 (Korean Overview)
 
-**TreePad**는 Windows 11 기본 메모장의 군더더기 없는 가벼움에 **폴더/노트 트리 계층 구조**와 **클라우드 연동성**을 더한 순수 텍스트 메모장입니다.
+**TreePad**는 Windows 11 기본 메모장의 군더더기 없는 가벼움에 **폴더/노트 트리 계층 구조**와 **실시간 클라우드 연동성**을 결합한 순수 텍스트 메모장입니다.
 
 ### 핵심 강점
-1. **표준 텍스트 기반**: 전용 데이터베이스에 갇히지 않고 실제 폴더와 UTF-8 `.txt` 파일로 저장되므로 구글 드라이브나 스마트폰에서도 자유롭게 열고 편집할 수 있습니다.
-2. **자동 세션 복원**: 저장 버튼을 신경 쓸 필요 없이 타이핑 즉시 저장되며, 창을 닫았다가 다시 열면 작업하던 탭과 커서 위치가 100% 그대로 복원됩니다.
-3. **편안한 가독성**: 장시간 집중해도 눈이 피로하지 않은 따뜻한 바닐라 크림 종이 테마를 제공합니다.
-4. **마우스 드래그 이동 & 휴지통 보호**: 트리 항목을 끌어다 놓아 손쉽게 분류하고, 삭제 시 윈도우 휴지통으로 이동하여 안전합니다.
+1. **표준 텍스트 기반 (`.txt` & `.md`)**: 전용 데이터베이스에 갇히지 않고 실제 폴더와 UTF-8 `.txt`, `.md` 파일로 저장되므로 구글 드라이브, 원드라이브 및 스마트폰 앱(Markor, Obsidian 등)에서 자유롭게 함께 편집할 수 있습니다.
+2. **실시간 외부 변경 감지**: 앱을 켜둔 상태에서 스마트폰이나 클라우드로 동기화된 새 메모/수정 내용도 실시간으로 자동 반영됩니다 (`F5` 수동 새로고침 지원).
+3. **무손실 자동 저장 & 탭별 커서 복원**: 저장 버튼 없이 입력 즉시 자동 저장되며, 탭을 옮겨 다니거나 창을 닫았다가 다시 열어도 각 탭의 커서와 스크롤 위치가 그대로 유지됩니다.
+4. **편안한 가독성 & 안전한 관리**: 눈이 피로하지 않은 따뜻한 크림 종이 테마, 마우스 드래그 앤 드롭 이동, 윈도우 휴지통 삭제 보호 기능을 기본 제공합니다.
+
+> **💡 처음 실행 시 Windows 보호 창 안내**  
+> 별도 설치 과정 없는 개인 오픈소스 단일 실행 파일(`TreePad.exe`) 특성상, 다운로드 후 최초 실행 시 *"Windows의 PC 보호"* 안내창이 나타날 수 있습니다. **`추가 정보`** → **`실행`**을 누르시면 정상 실행됩니다.
 
 ---
 
 ## 📄 License
 
-This project is licensed under the [MIT License](LICENSE).
-Copyright (c) 2026 yokoncho9.
+This project is licensed under the [MIT License](LICENSE).  
+Copyright (c) 2026 [yokoncho9](https://github.com/yokoncho9).

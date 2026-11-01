@@ -12,12 +12,12 @@
     <!-- 어셈블리 메타데이터 & 아이콘 -->
     <ApplicationIcon>Assets\app.ico</ApplicationIcon>
     <AssemblyTitle>TreePad</AssemblyTitle>
-    <Product>TreePad - 나만의 트리 메모장</Product>
-    <Description>Windows 11 네이티브 트리형 순수 텍스트 메모장</Description>
-    <Company>TreePad Team</Company>
-    <Version>1.0.0</Version>
-    <FileVersion>1.0.0.0</FileVersion>
-    <AssemblyVersion>1.0.0.0</AssemblyVersion>
+    <Product>TreePad - Hierarchical Plain-Text Notepad</Product>
+    <Description>Minimal hierarchical plain-text notepad for Windows 11 / Windows 11 네이티브 트리형 순수 텍스트 메모장</Description>
+    <Company>yokoncho9</Company>
+    <Version>1.0.1</Version>
+    <FileVersion>1.0.1.0</FileVersion>
+    <AssemblyVersion>1.0.1.0</AssemblyVersion>
   </PropertyGroup>
 
   <ItemGroup>
