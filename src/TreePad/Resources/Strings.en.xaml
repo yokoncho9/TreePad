@@ -1,0 +1,71 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:sys="clr-namespace:System;assembly=mscorlib">
+
+    <!-- 🌟 TreePad English Resource Dictionary 🌟 -->
+    <sys:String x:Key="AppTitle">TreePad - Hierarchical Plain Text Notepad</sys:String>
+
+    <!-- Hamburger Menu -->
+    <sys:String x:Key="Menu_NewNote">New Note</sys:String>
+    <sys:String x:Key="Menu_NewFolder">New Folder</sys:String>
+    <sys:String x:Key="Menu_Rename">Rename</sys:String>
+    <sys:String x:Key="Menu_Delete">Delete</sys:String>
+    <sys:String x:Key="Menu_Find">Find</sys:String>
+    <sys:String x:Key="Menu_Replace">Replace</sys:String>
+    <sys:String x:Key="Menu_WordWrap">Word Wrap</sys:String>
+    <sys:String x:Key="Menu_OpenFolder">Open Folder</sys:String>
+    <sys:String x:Key="Menu_ChangeStorage">Change Storage...</sys:String>
+    <sys:String x:Key="Menu_CloudGuide">Cloud Sync Guide</sys:String>
+    <sys:String x:Key="Menu_Language">Language (언어)</sys:String>
+    <sys:String x:Key="Menu_Lang_System">System Default (시스템 기본)</sys:String>
+    <sys:String x:Key="Menu_Lang_Ko">한국어 (Korean)</sys:String>
+    <sys:String x:Key="Menu_Lang_En">English</sys:String>
+    <sys:String x:Key="Menu_ToggleSidebar">Toggle Sidebar</sys:String>
+    <sys:String x:Key="Menu_About">About TreePad</sys:String>
+
+    <!-- Sidebar & Tooltips -->
+    <sys:String x:Key="Tip_ToggleSidebar">Toggle Sidebar (Ctrl+B)</sys:String>
+    <sys:String x:Key="Tip_ExpandSidebar">Expand Sidebar (Ctrl+B)</sys:String>
+    <sys:String x:Key="Tip_Menu">Menu</sys:String>
+    <sys:String x:Key="Search_Placeholder">Search notes (title)...</sys:String>
+    <sys:String x:Key="Root_SelectTip">Click to select ROOT</sys:String>
+    <sys:String x:Key="Root_Deselect">Deselect</sys:String>
+    <sys:String x:Key="Tree_NewNote">New Note</sys:String>
+    <sys:String x:Key="Tree_NewFolder">New Folder</sys:String>
+
+    <!-- Tabs & Editor Toolbar -->
+    <sys:String x:Key="Tab_Close">Close Tab (Ctrl+W)</sys:String>
+    <sys:String x:Key="Tab_CloseOthers">Close Other Tabs</sys:String>
+    <sys:String x:Key="Tab_CloseAll">Close All Tabs</sys:String>
+    <sys:String x:Key="Tip_Find">Find Text (Ctrl+F)</sys:String>
+    <sys:String x:Key="Tip_Replace">Find &amp; Replace (Ctrl+H)</sys:String>
+    <sys:String x:Key="Tip_FontSize">Font Size (Ctrl+Mouse Wheel)</sys:String>
+
+    <!-- Find and Replace Bar -->
+    <sys:String x:Key="Find_Label">Find:</sys:String>
+    <sys:String x:Key="Find_Prev">Find Previous (Shift+Enter)</sys:String>
+    <sys:String x:Key="Find_Next">Find Next (Enter / F3)</sys:String>
+    <sys:String x:Key="Replace_Label">Replace:</sys:String>
+    <sys:String x:Key="Replace_Btn">Replace</sys:String>
+    <sys:String x:Key="Replace_AllBtn">Replace All</sys:String>
+    <sys:String x:Key="Replace_CurrentTip">Replace current match (Enter)</sys:String>
+    <sys:String x:Key="Replace_AllTip">Replace all matches in document</sys:String>
+    <sys:String x:Key="Replace_ToggleTip">Toggle Replace (Ctrl+H)</sys:String>
+    <sys:String x:Key="Find_CloseTip">Close (Esc)</sys:String>
+
+    <!-- Editor Context Menu -->
+    <sys:String x:Key="Edit_Copy">Copy</sys:String>
+    <sys:String x:Key="Edit_Cut">Cut</sys:String>
+    <sys:String x:Key="Edit_SelectAll">Select All</sys:String>
+    <sys:String x:Key="Edit_Paste">Paste</sys:String>
+
+    <!-- Empty State -->
+    <sys:String x:Key="Empty_Title">No notes open</sys:String>
+    <sys:String x:Key="Empty_Desc">Select a note from the tree or click [New Note (Ctrl+N)] in the menu.</sys:String>
+
+    <!-- Bottom Status Bar -->
+    <sys:String x:Key="Status_StoragePath">Storage: </sys:String>
+    <sys:String x:Key="Status_WordWrap">Wrap</sys:String>
+    <sys:String x:Key="Status_UTF8">UTF-8</sys:String>
+
+</ResourceDictionary>

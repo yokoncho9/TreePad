@@ -1,0 +1,71 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:sys="clr-namespace:System;assembly=mscorlib">
+
+    <!-- 🌟 TreePad 한국어 리소스 사전 (Korean Strings) 🌟 -->
+    <sys:String x:Key="AppTitle">TreePad - 나만의 트리 메모장</sys:String>
+
+    <!-- 햄버거 메뉴 -->
+    <sys:String x:Key="Menu_NewNote">새 메모</sys:String>
+    <sys:String x:Key="Menu_NewFolder">새 폴더</sys:String>
+    <sys:String x:Key="Menu_Rename">이름 바꾸기</sys:String>
+    <sys:String x:Key="Menu_Delete">삭제</sys:String>
+    <sys:String x:Key="Menu_Find">찾기</sys:String>
+    <sys:String x:Key="Menu_Replace">바꾸기</sys:String>
+    <sys:String x:Key="Menu_WordWrap">자동 줄바꿈</sys:String>
+    <sys:String x:Key="Menu_OpenFolder">폴더 열기</sys:String>
+    <sys:String x:Key="Menu_ChangeStorage">저장 위치 변경...</sys:String>
+    <sys:String x:Key="Menu_CloudGuide">클라우드 연동 안내</sys:String>
+    <sys:String x:Key="Menu_Language">언어 (Language)</sys:String>
+    <sys:String x:Key="Menu_Lang_System">시스템 기본 (System)</sys:String>
+    <sys:String x:Key="Menu_Lang_Ko">한국어 (Korean)</sys:String>
+    <sys:String x:Key="Menu_Lang_En">English</sys:String>
+    <sys:String x:Key="Menu_ToggleSidebar">사이드바 접기/펼치기</sys:String>
+    <sys:String x:Key="Menu_About">TreePad 정보</sys:String>
+
+    <!-- 사이드바 & 툴팁 -->
+    <sys:String x:Key="Tip_ToggleSidebar">사이드바 접기 (Ctrl+B)</sys:String>
+    <sys:String x:Key="Tip_ExpandSidebar">사이드바 펼치기 (Ctrl+B)</sys:String>
+    <sys:String x:Key="Tip_Menu">메뉴</sys:String>
+    <sys:String x:Key="Search_Placeholder">메모 검색 (제목)...</sys:String>
+    <sys:String x:Key="Root_SelectTip">클릭하여 ROOT(최상단) 선택</sys:String>
+    <sys:String x:Key="Root_Deselect">선택 해제</sys:String>
+    <sys:String x:Key="Tree_NewNote">새 메모 만들기</sys:String>
+    <sys:String x:Key="Tree_NewFolder">새 폴더 만들기</sys:String>
+
+    <!-- 탭 & 에디터 툴바 -->
+    <sys:String x:Key="Tab_Close">탭 닫기 (Ctrl+W)</sys:String>
+    <sys:String x:Key="Tab_CloseOthers">다른 탭 닫기</sys:String>
+    <sys:String x:Key="Tab_CloseAll">모든 탭 닫기</sys:String>
+    <sys:String x:Key="Tip_Find">텍스트 찾기 (Ctrl+F)</sys:String>
+    <sys:String x:Key="Tip_Replace">텍스트 찾아 바꾸기 (Ctrl+H)</sys:String>
+    <sys:String x:Key="Tip_FontSize">글꼴 크기 선택 (Ctrl+마우스 휠)</sys:String>
+
+    <!-- 찾기 및 바꾸기 바 -->
+    <sys:String x:Key="Find_Label">찾기:</sys:String>
+    <sys:String x:Key="Find_Prev">이전 찾기 (Shift+Enter)</sys:String>
+    <sys:String x:Key="Find_Next">다음 찾기 (Enter / F3)</sys:String>
+    <sys:String x:Key="Replace_Label">바꾸기:</sys:String>
+    <sys:String x:Key="Replace_Btn">바꾸기</sys:String>
+    <sys:String x:Key="Replace_AllBtn">모두 바꾸기</sys:String>
+    <sys:String x:Key="Replace_CurrentTip">현재 일치하는 단어 바꾸기 (Enter)</sys:String>
+    <sys:String x:Key="Replace_AllTip">문서 전체에서 모두 바꾸기</sys:String>
+    <sys:String x:Key="Replace_ToggleTip">바꾸기 펼치기/접기 (Ctrl+H)</sys:String>
+    <sys:String x:Key="Find_CloseTip">닫기 (Esc)</sys:String>
+
+    <!-- 에디터 우클릭 컨텍스트 메뉴 -->
+    <sys:String x:Key="Edit_Copy">복사</sys:String>
+    <sys:String x:Key="Edit_Cut">잘라내기</sys:String>
+    <sys:String x:Key="Edit_SelectAll">전체선택</sys:String>
+    <sys:String x:Key="Edit_Paste">붙여넣기</sys:String>
+
+    <!-- 빈 상태 안내 -->
+    <sys:String x:Key="Empty_Title">열린 메모가 없습니다</sys:String>
+    <sys:String x:Key="Empty_Desc">좌측 트리에서 메모를 클릭하거나 메뉴의 [새 메모 (Ctrl+N)]를 누르세요.</sys:String>
+
+    <!-- 하단 상태표시줄 -->
+    <sys:String x:Key="Status_StoragePath">저장 위치: </sys:String>
+    <sys:String x:Key="Status_WordWrap">줄바꿈</sys:String>
+    <sys:String x:Key="Status_UTF8">UTF-8</sys:String>
+
+</ResourceDictionary>

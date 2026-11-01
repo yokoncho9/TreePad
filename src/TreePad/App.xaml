@@ -1,0 +1,36 @@
+<Application x:Class="TreePad.App"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+             StartupUri="MainWindow.xaml">
+    <Application.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ui:ThemesDictionary Theme="Light" />
+                <ui:ControlsDictionary />
+                <ResourceDictionary Source="Resources/Strings.ko.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+
+            <!-- 🌟 구글 안티그래비티 실제 화면 정밀 추출 Gruvbox Material Light 팔레트 🌟 -->
+            <SolidColorBrush x:Key="GruvBg" Color="#FCF8EC" />              <!-- 에디터 본문 (밝고 맑은 바닐라 파피루스) -->
+            <SolidColorBrush x:Key="GruvPanelBg" Color="#F7F2DA" />         <!-- 사이드바 / 툴바 (부드러운 크림 베이지) -->
+            <SolidColorBrush x:Key="GruvHeaderBg" Color="#F2EDB8" />        <!-- 타이틀바 헤더 배경 -->
+            <SolidColorBrush x:Key="GruvTabBarBg" Color="#ECE5C8" />        <!-- 탭 바 전체 컨테이너 배경 -->
+            <SolidColorBrush x:Key="GruvBorder" Color="#E5DEC2" />          <!-- 부드러운 은은한 구분선 -->
+            <SolidColorBrush x:Key="GruvBorderStrong" Color="#D6CEAE" />    <!-- 강조 테두리선 -->
+
+            <SolidColorBrush x:Key="GruvFg" Color="#42352B" />              <!-- 본문 텍스트 (깊은 에스프레소 브라운) -->
+            <SolidColorBrush x:Key="GruvFgMuted" Color="#8C7D6C" />         <!-- 보조 텍스트 (모카 그레이) -->
+
+            <SolidColorBrush x:Key="GruvActiveTabBg" Color="#FCF8EC" />     <!-- 활성 탭 배경 (본문과 일치) -->
+            <SolidColorBrush x:Key="GruvInactiveTabBg" Color="#E8E0BF" />   <!-- 비활성 탭 배경 (자연스러운 음영 대비) -->
+            <SolidColorBrush x:Key="GruvTabHoverBg" Color="#F4EED5" />      <!-- 탭 마우스 오버 배경 -->
+            <SolidColorBrush x:Key="GruvSelectedPill" Color="#E6E0C6" />    <!-- 트리 선택된 항목 (안티그래비티 Pill 배경) -->
+            <SolidColorBrush x:Key="GruvAccentOrange" Color="#D96B27" />    <!-- 안티그래비티 오렌지 액센트 -->
+            <SolidColorBrush x:Key="GruvAccentAqua" Color="#3C7882" />      <!-- 차분한 틸/아쿠아 블루 -->
+            <SolidColorBrush x:Key="GruvAccentYellow" Color="#C78B2A" />    <!-- 폴더 아이콘 골드 -->
+            <SolidColorBrush x:Key="GruvAccentGreen" Color="#6C7A32" />     <!-- 저장됨 상태 올리브 그린 -->
+            <SolidColorBrush x:Key="GruvCaret" Color="#B83A22" />           <!-- 에디터 커서 레드 -->
+        </ResourceDictionary>
+    </Application.Resources>
+</Application>

@@ -1,0 +1,22 @@
+## Visual Studio & .NET Core
+.vs/
+bin/
+obj/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+## Build & Publish outputs
+publish/
+publish_new/
+*.tmp
+*.log
+crash.log
+
+## OS generated files
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+.DS_Store
