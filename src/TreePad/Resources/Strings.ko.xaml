@@ -16,7 +16,6 @@
     <sys:String x:Key="Menu_WordWrap">자동 줄바꿈</sys:String>
     <sys:String x:Key="Menu_OpenFolder">폴더 열기</sys:String>
     <sys:String x:Key="Menu_ChangeStorage">저장 위치 변경...</sys:String>
-    <sys:String x:Key="Menu_CloudGuide">클라우드 연동 안내</sys:String>
     <sys:String x:Key="Menu_Language">언어 (Language)</sys:String>
     <sys:String x:Key="Menu_Lang_System">시스템 기본 (System)</sys:String>
     <sys:String x:Key="Menu_Lang_Ko">한국어 (Korean)</sys:String>
@@ -80,5 +79,12 @@
     <sys:String x:Key="Status_StoragePath">저장 위치: </sys:String>
     <sys:String x:Key="Status_WordWrap">줄바꿈</sys:String>
     <sys:String x:Key="Status_UTF8">UTF-8</sys:String>
+
+    <!-- 모달 정보 대화상자 -->
+    <sys:String x:Key="About_Tagline">나만의 윈도우 11 순수 텍스트 트리 메모장</sys:String>
+    <sys:String x:Key="About_Developer">개발자</sys:String>
+    <sys:String x:Key="About_License">라이선스</sys:String>
+    <sys:String x:Key="About_Description">군더더기 없는 가벼운 속도와 계층적 트리 정리, 실시간 클라우드 연동(.txt / .md), 무손실 자동 세션 복원을 경험해 보세요.</sys:String>
+    <sys:String x:Key="About_Close">닫기</sys:String>
 
 </ResourceDictionary>

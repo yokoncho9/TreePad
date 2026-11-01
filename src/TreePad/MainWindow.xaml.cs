@@ -270,9 +270,11 @@ namespace TreePad
 
         private void OnAboutClick(object sender, RoutedEventArgs e)
         {
-            string aboutText = TreePad.Services.LocalizationService.Instance.GetAboutContent();
-            string aboutTitle = TreePad.Services.LocalizationService.Instance.GetAboutTitle();
-            MessageBox.Show(aboutText, aboutTitle, MessageBoxButton.OK, MessageBoxImage.Information);
+            var aboutDialog = new Views.AboutDialog
+            {
+                Owner = this
+            };
+            aboutDialog.ShowDialog();
         }
 
         private void OnEditorTextChanged(object sender, TextChangedEventArgs e)
@@ -949,13 +951,6 @@ namespace TreePad
                 _currentDropTarget.IsDragOver = false;
                 _currentDropTarget = null;
             }
-        }
-
-        private void OnCloudGuideClick(object sender, RoutedEventArgs e)
-        {
-            string guideMessage = TreePad.Services.LocalizationService.Instance.GetCloudGuideContent();
-            string guideTitle = TreePad.Services.LocalizationService.Instance.GetCloudGuideTitle();
-            MessageBox.Show(guideMessage, guideTitle, MessageBoxButton.OK, MessageBoxImage.Information);
         }
 
         private void OnEditorContextMenuOpening(object sender, ContextMenuEventArgs e)

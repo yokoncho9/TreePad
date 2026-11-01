@@ -222,11 +222,6 @@
                                             <ui:SymbolIcon Symbol="Settings20" Foreground="{StaticResource GruvAccentOrange}" />
                                         </MenuItem.Icon>
                                     </MenuItem>
-                                    <MenuItem Header="{DynamicResource Menu_CloudGuide}" Click="OnCloudGuideClick" Foreground="{StaticResource GruvFg}">
-                                        <MenuItem.Icon>
-                                            <ui:SymbolIcon Symbol="PhoneLaptop20" Foreground="{StaticResource GruvAccentAqua}" />
-                                        </MenuItem.Icon>
-                                    </MenuItem>
 
                                     <Separator Background="{StaticResource GruvBorder}" />
 

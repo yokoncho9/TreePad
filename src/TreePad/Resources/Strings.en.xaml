@@ -16,7 +16,6 @@
     <sys:String x:Key="Menu_WordWrap">Word Wrap</sys:String>
     <sys:String x:Key="Menu_OpenFolder">Open Folder</sys:String>
     <sys:String x:Key="Menu_ChangeStorage">Change Storage...</sys:String>
-    <sys:String x:Key="Menu_CloudGuide">Cloud Sync Guide</sys:String>
     <sys:String x:Key="Menu_Language">Language (언어)</sys:String>
     <sys:String x:Key="Menu_Lang_System">System Default (시스템 기본)</sys:String>
     <sys:String x:Key="Menu_Lang_Ko">한국어 (Korean)</sys:String>
@@ -80,5 +79,12 @@
     <sys:String x:Key="Status_StoragePath">Storage: </sys:String>
     <sys:String x:Key="Status_WordWrap">Wrap</sys:String>
     <sys:String x:Key="Status_UTF8">UTF-8</sys:String>
+
+    <!-- Modal About Dialog -->
+    <sys:String x:Key="About_Tagline">Hierarchical Plain-Text Notepad for Windows 11</sys:String>
+    <sys:String x:Key="About_Developer">Developer</sys:String>
+    <sys:String x:Key="About_License">License</sys:String>
+    <sys:String x:Key="About_Description">Experience fast, distraction-free writing with folder trees, live cloud sync (.txt / .md), and instant zero-save session restore.</sys:String>
+    <sys:String x:Key="About_Close">Close</sys:String>
 
 </ResourceDictionary>
