@@ -30,11 +30,14 @@
 
 ## 📥 Download & Quick Start
 
-1. Download **`TreePad.exe`** from the [**Latest Release**](https://github.com/yokoncho9/TreePad/releases/latest).
-2. Double-click `TreePad.exe` to run immediately — no installer or .NET runtime required.
+1. Download **`TreePad.exe`** (or **`TreePad-v1.0.2-win-x64.zip`**) from the [**Latest Release**](https://github.com/yokoncho9/TreePad/releases/latest).
+2. Run `TreePad.exe` directly — portable and self-contained with no installation required.
 
-> **💡 Note on Windows SmartScreen**  
-> Because `TreePad.exe` is an independent open-source portable binary without a paid commercial EV certificate, Windows may show a *"Windows protected your PC"* prompt on first launch. Click **`More info`** → **`Run anyway`** to start.
+> **💡 Note on Windows SmartScreen & Browser Warnings**  
+> Because TreePad is an open-source project without a paid commercial EV certificate, Windows or web browsers may show a security notice on first download/launch:
+> - **In Browser**: If blocked, choose **Keep / Download anyway**.
+> - **In Windows**: If SmartScreen appears, click **More info (`추가 정보`)** → **Run anyway (`실행`)**.
+> - If your company firewall blocks direct `.exe` downloads, please download the **`.zip` package** instead.
 
 ---
 
