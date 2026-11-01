@@ -20,3 +20,8 @@ ehthumbs.db
 Desktop.ini
 $RECYCLE.BIN/
 .DS_Store
+
+## External reference / test tools
+cherrytree*/
+*cherrytree*
+
