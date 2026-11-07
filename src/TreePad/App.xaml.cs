@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Text;
 using System.Threading;
 using System.Windows;
 
@@ -9,6 +10,7 @@ namespace TreePad
     {
         private const string SingleInstanceMutexName = @"Local\TreePad_SingleInstance_Mutex_v1";
         private const string ActivateEventName = @"Local\TreePad_Activate_Event_v1";
+        private const long MaxCrashLogBytes = 1024 * 1024; // 1MB 롤오버 제한
 
         private Mutex? _instanceMutex;
         private bool _ownsMutex;
@@ -17,6 +19,9 @@ namespace TreePad
 
         public App()
         {
+            // 한국어 레거시 인코딩(CP949 / EUC-KR) 지원을 위한 코드 페이지 공급자 등록
+            Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+
             AppDomain.CurrentDomain.UnhandledException += (s, e) =>
             {
                 WriteCrashLog("UnhandledException", e.ExceptionObject?.ToString());
@@ -27,6 +32,23 @@ namespace TreePad
                 WriteCrashLog("DispatcherUnhandledException", e.Exception?.ToString());
                 e.Handled = false;
             };
+
+            SessionEnding += OnAppSessionEnding;
+        }
+
+        private void OnAppSessionEnding(object sender, SessionEndingCancelEventArgs e)
+        {
+            try
+            {
+                if (MainWindow is MainWindow mainWin)
+                {
+                    mainWin.FlushSessionOnSystemShutdown();
+                }
+            }
+            catch (Exception ex)
+            {
+                WriteCrashLog("SessionEndingException", ex.ToString());
+            }
         }
 
         private static void WriteCrashLog(string category, string? details)
@@ -37,8 +59,19 @@ namespace TreePad
                 string logDir = Path.Combine(appData, "TreePad");
                 Directory.CreateDirectory(logDir);
                 string logPath = Path.Combine(logDir, "crash.log");
+
+                if (File.Exists(logPath))
+                {
+                    var info = new FileInfo(logPath);
+                    if (info.Length > MaxCrashLogBytes)
+                    {
+                        string backupPath = Path.Combine(logDir, "crash.old.log");
+                        File.Move(logPath, backupPath, overwrite: true);
+                    }
+                }
+
                 string entry = $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] {category}:{Environment.NewLine}{details}{Environment.NewLine}{new string('-', 60)}{Environment.NewLine}";
-                File.AppendAllText(logPath, entry);
+                File.AppendAllText(logPath, entry, new UTF8Encoding(false));
             }
             catch
             {

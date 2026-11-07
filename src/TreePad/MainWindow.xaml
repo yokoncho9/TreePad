@@ -45,7 +45,7 @@
 
         <!-- TreeViewItem 템플릿 (아이콘 + 텍스트) -->
         <HierarchicalDataTemplate DataType="{x:Type vm:TreeItemViewModel}" ItemsSource="{Binding Children}">
-            <Grid Visibility="{Binding IsVisible, Converter={StaticResource BoolToVis}}" Margin="0,1">
+            <Grid Margin="0,1">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="*" />
@@ -92,9 +92,11 @@
         <KeyBinding Modifiers="Control" Key="N" Command="{Binding CreateNewNoteCommand}" />
         <KeyBinding Modifiers="Control+Shift" Key="N" Command="{Binding CreateNewFolderCommand}" />
         <KeyBinding Modifiers="Control" Key="W" Command="{Binding CloseActiveTabCommand}" />
+        <KeyBinding Modifiers="Control" Key="Tab" Command="{Binding SelectNextTabCommand}" />
+        <KeyBinding Modifiers="Control+Shift" Key="Tab" Command="{Binding SelectPreviousTabCommand}" />
         <KeyBinding Modifiers="Control" Key="B" Command="{Binding ToggleSidebarCommand}" />
         <KeyBinding Modifiers="Alt" Key="Z" Command="{Binding ToggleWordWrapCommand}" />
-        <KeyBinding Key="F5" Command="{Binding RefreshTreeCommand}" />
+        <KeyBinding Modifiers="Control" Key="R" Command="{Binding RefreshTreeCommand}" />
         <KeyBinding Modifiers="Control" Key="OemPlus" Command="{Binding ZoomInCommand}" />
         <KeyBinding Modifiers="Control" Key="Add" Command="{Binding ZoomInCommand}" />
         <KeyBinding Modifiers="Control" Key="OemMinus" Command="{Binding ZoomOutCommand}" />
@@ -186,7 +188,7 @@
                                             <ui:SymbolIcon Symbol="Delete20" Foreground="#D9534F" />
                                         </MenuItem.Icon>
                                     </MenuItem>
-                                    <MenuItem Header="{DynamicResource Menu_Refresh}" Command="{Binding RefreshTreeCommand}" InputGestureText="F5" Foreground="{StaticResource GruvFg}">
+                                    <MenuItem Header="{DynamicResource Menu_Refresh}" Command="{Binding RefreshTreeCommand}" InputGestureText="Ctrl+R" Foreground="{StaticResource GruvFg}">
                                         <MenuItem.Icon>
                                             <ui:SymbolIcon Symbol="ArrowClockwise20" Foreground="{StaticResource GruvAccentGreen}" />
                                         </MenuItem.Icon>
@@ -202,6 +204,11 @@
                                     <MenuItem Header="{DynamicResource Menu_Replace}" Click="OnMenuReplaceClick" InputGestureText="Ctrl+H" Foreground="{StaticResource GruvFg}">
                                         <MenuItem.Icon>
                                             <ui:SymbolIcon Symbol="ArrowRepeatAll20" Foreground="{StaticResource GruvAccentOrange}" />
+                                        </MenuItem.Icon>
+                                    </MenuItem>
+                                    <MenuItem Header="{DynamicResource Edit_TimeDate}" Click="OnInsertTimeDateClick" InputGestureText="F5" Foreground="{StaticResource GruvFg}">
+                                        <MenuItem.Icon>
+                                            <ui:SymbolIcon Symbol="Clock20" Foreground="{StaticResource GruvAccentAqua}" />
                                         </MenuItem.Icon>
                                     </MenuItem>
                                     <MenuItem Header="{DynamicResource Menu_WordWrap}" Command="{Binding ToggleWordWrapCommand}" InputGestureText="Alt+Z" Foreground="{StaticResource GruvFg}">
@@ -318,6 +325,7 @@
                           Padding="4,2">
                     <TreeView.ItemContainerStyle>
                         <Style TargetType="{x:Type TreeViewItem}">
+                            <Setter Property="Visibility" Value="{Binding IsVisible, Converter={StaticResource BoolToVis}}" />
                             <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}" />
                             <Setter Property="IsSelected" Value="{Binding IsSelected, Mode=TwoWay}" />
                             <Setter Property="Foreground" Value="{StaticResource GruvFg}" />
@@ -461,7 +469,7 @@
                                     <ui:SymbolIcon Symbol="DismissCircle20" Foreground="{StaticResource GruvFgMuted}" />
                                 </MenuItem.Icon>
                             </MenuItem>
-                            <MenuItem Header="{DynamicResource Tree_Refresh}" Command="{Binding RefreshTreeCommand}" InputGestureText="F5" Foreground="{StaticResource GruvFg}">
+                            <MenuItem Header="{DynamicResource Tree_Refresh}" Command="{Binding RefreshTreeCommand}" InputGestureText="Ctrl+R / F5" Foreground="{StaticResource GruvFg}">
                                 <MenuItem.Icon>
                                     <ui:SymbolIcon Symbol="ArrowClockwise20" Foreground="{StaticResource GruvAccentGreen}" />
                                 </MenuItem.Icon>
@@ -534,6 +542,7 @@
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate DataType="{x:Type vm:NoteTabViewModel}">
                                         <Border Margin="3,4,3,0" CornerRadius="5,5,0,0" Cursor="Hand"
+                                                ToolTip="{Binding RelativePath}"
                                                 MouseLeftButtonDown="OnTabItemMouseLeftButtonDown"
                                                 MouseDown="OnTabItemMouseDown">
                                             <Border.Style>
@@ -793,6 +802,9 @@
                              FontFamily="Pretendard, Segoe UI Variable Text, 맑은 고딕, Malgun Gothic, sans-serif"
                              AcceptsReturn="True"
                              AcceptsTab="True"
+                             IsInactiveSelectionHighlightEnabled="True"
+                             SelectionBrush="{StaticResource GruvAccentOrange}"
+                             SelectionOpacity="0.28"
                              VerticalScrollBarVisibility="Auto"
                              HorizontalScrollBarVisibility="Auto"
                              Padding="28,20,28,28"
@@ -839,7 +851,7 @@
                                             <Setter.Value>
                                                 <ControlTemplate TargetType="{x:Type MenuItem}">
                                                     <Border x:Name="bd" Background="{TemplateBinding Background}" CornerRadius="4" Padding="{TemplateBinding Padding}" Margin="1,1">
-                                                        <Grid MinWidth="150">
+                                                        <Grid MinWidth="160">
                                                             <Grid.ColumnDefinitions>
                                                                 <ColumnDefinition Width="*"/>
                                                                 <ColumnDefinition Width="Auto"/>
@@ -864,6 +876,14 @@
                                     </Style>
                                 </ContextMenu.Resources>
 
+                                <MenuItem x:Name="MenuUndo" Header="{DynamicResource Edit_Undo}" InputGestureText="Ctrl+Z"
+                                          Click="OnMenuUndoClick" />
+
+                                <MenuItem x:Name="MenuRedo" Header="{DynamicResource Edit_Redo}" InputGestureText="Ctrl+Y"
+                                          Click="OnMenuRedoClick" />
+
+                                <Separator Background="{StaticResource GruvBorder}" Margin="6,2" />
+
                                 <MenuItem x:Name="MenuCopy" Header="{DynamicResource Edit_Copy}" InputGestureText="Ctrl+C"
                                           Command="ApplicationCommands.Copy"
                                           CommandTarget="{Binding PlacementTarget, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
@@ -872,13 +892,18 @@
                                           Command="ApplicationCommands.Cut"
                                           CommandTarget="{Binding PlacementTarget, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
 
+                                <MenuItem x:Name="MenuPaste" Header="{DynamicResource Edit_Paste}" InputGestureText="Ctrl+V"
+                                          Command="ApplicationCommands.Paste"
+                                          CommandTarget="{Binding PlacementTarget, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
+
                                 <MenuItem x:Name="MenuSelectAll" Header="{DynamicResource Edit_SelectAll}" InputGestureText="Ctrl+A"
                                           Command="ApplicationCommands.SelectAll"
                                           CommandTarget="{Binding PlacementTarget, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
 
-                                <MenuItem x:Name="MenuPaste" Header="{DynamicResource Edit_Paste}" InputGestureText="Ctrl+V"
-                                          Command="ApplicationCommands.Paste"
-                                          CommandTarget="{Binding PlacementTarget, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
+                                <Separator Background="{StaticResource GruvBorder}" Margin="6,2" />
+
+                                <MenuItem x:Name="MenuTimeDate" Header="{DynamicResource Edit_TimeDate}" InputGestureText="F5"
+                                          Click="OnInsertTimeDateClick" />
                             </ContextMenu>
                         </TextBox.ContextMenu>
                     </TextBox>
@@ -922,8 +947,23 @@
 
                 <!-- 좌측: 저장 상태 인디케이터 & 저장소 요약 -->
                 <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
-                    <ui:SymbolIcon Symbol="CheckmarkCircle20" FontSize="14" Foreground="{StaticResource GruvAccentGreen}" Margin="0,0,6,0" />
-                    <TextBlock Text="{Binding SaveStatus}" FontSize="12" Foreground="{StaticResource GruvFg}" Margin="0,0,16,0" />
+                    <ui:SymbolIcon Symbol="CheckmarkCircle20" FontSize="14" Foreground="{StaticResource GruvAccentGreen}" Margin="0,0,6,0"
+                                   Visibility="{Binding IsSaveError, Converter={StaticResource InverseBoolToVis}}" />
+                    <ui:SymbolIcon Symbol="ErrorCircle20" FontSize="14" Foreground="#D9534F" Margin="0,0,6,0"
+                                   Visibility="{Binding IsSaveError, Converter={StaticResource BoolToVis}}" />
+                    <TextBlock Text="{Binding SaveStatus}" FontSize="12" Margin="0,0,16,0">
+                        <TextBlock.Style>
+                            <Style TargetType="{x:Type TextBlock}">
+                                <Setter Property="Foreground" Value="{StaticResource GruvFg}" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsSaveError}" Value="True">
+                                        <Setter Property="Foreground" Value="#D9534F" />
+                                        <Setter Property="FontWeight" Value="SemiBold" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
                     <TextBlock Text="{DynamicResource Status_StoragePath}" FontSize="11.5" Foreground="{StaticResource GruvFgMuted}" Margin="0,0,4,0" />
                     <TextBlock Text="{Binding StorageDirectoryPath}" FontSize="11.5"
                                Foreground="{StaticResource GruvFgMuted}" TextTrimming="CharacterEllipsis" MaxWidth="400" />

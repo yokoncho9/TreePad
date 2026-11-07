@@ -65,10 +65,13 @@
     <sys:String x:Key="Find_CloseTip">Close (Esc)</sys:String>
 
     <!-- Editor Context Menu -->
+    <sys:String x:Key="Edit_Undo">Undo</sys:String>
+    <sys:String x:Key="Edit_Redo">Redo</sys:String>
     <sys:String x:Key="Edit_Copy">Copy</sys:String>
     <sys:String x:Key="Edit_Cut">Cut</sys:String>
-    <sys:String x:Key="Edit_SelectAll">Select All</sys:String>
     <sys:String x:Key="Edit_Paste">Paste</sys:String>
+    <sys:String x:Key="Edit_SelectAll">Select All</sys:String>
+    <sys:String x:Key="Edit_TimeDate">Time/Date</sys:String>
 
     <!-- Empty State -->
     <sys:String x:Key="Empty_Title">No notes open</sys:String>

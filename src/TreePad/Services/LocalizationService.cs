@@ -140,10 +140,12 @@ A fast, lightweight, distraction-free plain-text notepad built for Windows 11.
 • New Folder:        Ctrl + Shift + N
 • Rename Item:       F2 (when tree is focused)
 • Delete Item:       Delete (moves safely to Recycle Bin)
-• Refresh Tree:      F5
+• Insert Time/Date:  F5 (in editor)
+• Refresh Tree:      Ctrl + R (or F5 when tree is focused)
 • Find / Replace:    Ctrl + F / Ctrl + H
 • Toggle Word Wrap:  Alt + Z
 • Toggle Sidebar:    Ctrl + B
+• Switch Tabs:       Ctrl + Tab / Ctrl + Shift + Tab
 • Close Tab:         Ctrl + W
 • Zoom Font Size:    Ctrl + Mouse Wheel (or Ctrl + + / - / 0)
 
@@ -188,10 +190,12 @@ Windows 11 전용으로 제작된 가볍고 군더더기 없는 순수 텍스트
 • 새 폴더 만들기:    Ctrl + Shift + N
 • 이름 바꾸기:       F2 (트리 선택 시)
 • 안전 삭제:         Delete (Windows 휴지통으로 이동)
-• 트리 새로고침:     F5
+• 시간/날짜 삽입:    F5 (에디터 입력 중)
+• 트리 새로고침:     Ctrl + R (또는 트리에서 F5)
 • 찾기 / 바꾸기:     Ctrl + F / Ctrl + H
 • 자동 줄바꿈 토글:  Alt + Z
 • 사이드바 접기/펴기: Ctrl + B
+• 탭 전환:           Ctrl + Tab / Ctrl + Shift + Tab
 • 현재 탭 닫기:      Ctrl + W
 • 글꼴 크기 조절:    Ctrl + 마우스 휠 (또는 Ctrl + + / - / 0)
 
@@ -315,6 +319,20 @@ TreePad의 모든 메모는 사용자 PC의 실제 폴더와 UTF-8 텍스트 파
         }
 
         public string GetDeleteFailedMessage(string msg) => IsEnglish ? $"Delete failed: {msg}" : $"삭제 실패: {msg}";
+        public string GetPermanentDeleteFallbackTitle() => IsEnglish ? "Recycle Bin Not Available" : "휴지통 이동 불가 (영구 삭제 확인)";
+        public string GetPermanentDeleteFallbackMessage(string targetName, bool isFolder)
+        {
+            if (IsEnglish)
+            {
+                string type = isFolder ? "folder and all its contents" : "note";
+                return $"'{targetName}' ({type}) cannot be moved to the Recycle Bin on this drive.\nDo you want to permanently delete it instead? (This cannot be undone.)";
+            }
+            else
+            {
+                string type = isFolder ? "폴더 및 하위 모든 내용" : "메모";
+                return $"현재 드라이브 환경에서는 '{targetName}' {type}을(를) 휴지통으로 이동할 수 없습니다.\n대신 즉시 영구 삭제하시겠습니까? (영구 삭제 후에는 복원할 수 없습니다)";
+            }
+        }
         public string GetMoveFailedTitle() => IsEnglish ? "Move Item" : "이동 안내";
         public string GetMoveFailedMessage(string msg) => IsEnglish ? $"Could not move item: {msg}" : $"항목 이동 실패: {msg}";
 

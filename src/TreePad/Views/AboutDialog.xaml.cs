@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Reflection;
 using System.Windows;
 using System.Windows.Navigation;
 
@@ -9,6 +10,11 @@ namespace TreePad.Views
         public AboutDialog()
         {
             InitializeComponent();
+            var version = Assembly.GetExecutingAssembly().GetName().Version;
+            if (version != null)
+            {
+                VersionBadgeText.Text = $"v{version.Major}.{version.Minor}.{version.Build}";
+            }
         }
 
         private void OnCloseClick(object sender, RoutedEventArgs e)

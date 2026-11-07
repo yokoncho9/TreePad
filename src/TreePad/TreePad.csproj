@@ -15,9 +15,9 @@
     <Product>TreePad - Hierarchical Plain-Text Notepad</Product>
     <Description>Minimal hierarchical plain-text notepad for Windows 11 / Windows 11 네이티브 트리형 순수 텍스트 메모장</Description>
     <Company>yokoncho9</Company>
-    <Version>1.0.2</Version>
-    <FileVersion>1.0.2.0</FileVersion>
-    <AssemblyVersion>1.0.2.0</AssemblyVersion>
+    <Version>1.0.3</Version>
+    <FileVersion>1.0.3.0</FileVersion>
+    <AssemblyVersion>1.0.3.0</AssemblyVersion>
   </PropertyGroup>
 
   <ItemGroup>

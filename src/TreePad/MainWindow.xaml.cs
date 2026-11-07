@@ -14,6 +14,8 @@ namespace TreePad
     public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
     {
         private readonly MainViewModel _viewModel;
+        private readonly DispatcherTimer _undoSnapshotTimer;
+        private bool _isApplyingUndoRedo = false;
         private int _lastFindIndex = -1;
         private double _savedSidebarWidth = 280;
         private Point _dragStartPoint;
@@ -26,12 +28,22 @@ namespace TreePad
             _viewModel = new MainViewModel();
             DataContext = _viewModel;
 
-            // Windows 11 시스템 테마 감시 연결
+            // 💡 Gruvbox Material Light 고정 테마가 Windows 11 다크 모드와 충돌하여 드롭다운/스크롤바가 깨지지 않도록 Light 테마로 명시적 고정
             try
             {
-                Wpf.Ui.Appearance.SystemThemeWatcher.Watch(this);
+                Wpf.Ui.Appearance.ApplicationThemeManager.Apply(Wpf.Ui.Appearance.ApplicationTheme.Light);
             }
             catch { }
+
+            _undoSnapshotTimer = new DispatcherTimer
+            {
+                Interval = TimeSpan.FromMilliseconds(350)
+            };
+            _undoSnapshotTimer.Tick += (s, e) =>
+            {
+                _undoSnapshotTimer.Stop();
+                CommitCurrentTabUndoCheckpoint();
+            };
 
             _viewModel.PropertyChanged += ViewModel_PropertyChanged;
             _viewModel.ActiveTabChanging += OnViewModelActiveTabChanging;
@@ -39,8 +51,20 @@ namespace TreePad
             _viewModel.ExternalContentReloaded += OnViewModelExternalContentReloaded;
             _viewModel.ConfirmDeleteCallback = ShowDeleteConfirmModal;
 
+            // 창이 화면에 그려지기 전(SourceInitialized)에 위치/크기/최대화 상태를 먼저 적용하여 시작 시 깜빡임/순간이동 제거
+            SourceInitialized += MainWindow_SourceInitialized;
             Loaded += MainWindow_Loaded;
             Closing += MainWindow_Closing;
+        }
+
+        private void CommitCurrentTabUndoCheckpoint()
+        {
+            if (_isApplyingUndoRedo || _viewModel.IsSwitchingOrExternalUpdate) return;
+            var tab = _viewModel.ActiveTab;
+            if (tab != null)
+            {
+                tab.RecordUndoCheckpoint(tab.Content, EditorTextBox.CaretIndex);
+            }
         }
 
         private void ViewModel_PropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -53,14 +77,17 @@ namespace TreePad
 
         private void OnViewModelActiveTabChanging(NoteTabViewModel? outgoingTab)
         {
+            _undoSnapshotTimer.Stop();
+
             if (outgoingTab != null)
             {
                 outgoingTab.CaretIndex = EditorTextBox.CaretIndex;
                 outgoingTab.VerticalOffset = EditorTextBox.VerticalOffset;
                 outgoingTab.HorizontalOffset = EditorTextBox.HorizontalOffset;
+                outgoingTab.RecordUndoCheckpoint(outgoingTab.Content, outgoingTab.CaretIndex);
             }
 
-            // 탭 전환 중 Text 바인딩 교체가 이전 탭의 Undo 스택에 기록되어 Ctrl+Z 시 다른 메모 내용으로 덮어써지는 현상 방지
+            // 탭 전환 중 Text 바인딩 교체가 네이티브 TextBox Undo 스택에 섞이지 않도록 초기화
             EditorTextBox.IsUndoEnabled = false;
         }
 
@@ -74,10 +101,24 @@ namespace TreePad
 
                 if (incomingTab != null && _viewModel.ActiveTab == incomingTab)
                 {
-                    int targetCaret = Math.Clamp(incomingTab.CaretIndex, 0, EditorTextBox.Text.Length);
+                    int contentLen = incomingTab.Content?.Length ?? 0;
+                    int targetCaret = Math.Clamp(incomingTab.CaretIndex, 0, contentLen);
                     EditorTextBox.CaretIndex = targetCaret;
-                    EditorTextBox.ScrollToVerticalOffset(incomingTab.VerticalOffset);
-                    EditorTextBox.ScrollToHorizontalOffset(incomingTab.HorizontalOffset);
+
+                    if (incomingTab.VerticalOffset > 0 || incomingTab.HorizontalOffset > 0)
+                    {
+                        EditorTextBox.ScrollToVerticalOffset(incomingTab.VerticalOffset);
+                        EditorTextBox.ScrollToHorizontalOffset(incomingTab.HorizontalOffset);
+                    }
+                    else if (targetCaret > 0)
+                    {
+                        int lineIdx = EditorTextBox.GetLineIndexFromCharacterIndex(targetCaret);
+                        if (lineIdx > 0)
+                        {
+                            EditorTextBox.ScrollToLine(lineIdx);
+                        }
+                    }
+
                     UpdateEditorCursorLineCol();
                 }
             }));
@@ -87,7 +128,8 @@ namespace TreePad
         {
             Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() =>
             {
-                int safeCaret = Math.Clamp(EditorTextBox.CaretIndex, 0, EditorTextBox.Text.Length);
+                int contentLen = _viewModel.ActiveTab?.Content?.Length ?? 0;
+                int safeCaret = Math.Clamp(EditorTextBox.CaretIndex, 0, contentLen);
                 EditorTextBox.CaretIndex = safeCaret;
                 UpdateEditorCursorLineCol();
             }));
@@ -100,6 +142,7 @@ namespace TreePad
                 if (SidebarColumn.ActualWidth > 50)
                 {
                     _savedSidebarWidth = SidebarColumn.ActualWidth;
+                    _viewModel.SidebarWidth = _savedSidebarWidth;
                 }
                 SidebarColumn.MinWidth = 0;
                 SidebarColumn.Width = new GridLength(0);
@@ -107,33 +150,50 @@ namespace TreePad
             }
             else
             {
+                double restoreWidth = _savedSidebarWidth >= 180 ? _savedSidebarWidth : 280;
+                _viewModel.SidebarWidth = restoreWidth;
                 SidebarColumn.MinWidth = 180;
-                SidebarColumn.Width = new GridLength(_savedSidebarWidth >= 180 ? _savedSidebarWidth : 280);
+                SidebarColumn.Width = new GridLength(restoreWidth);
                 SidebarSplitter.Visibility = Visibility.Visible;
             }
         }
 
-        private void MainWindow_Loaded(object sender, RoutedEventArgs e)
+        private void MainWindow_SourceInitialized(object? sender, EventArgs e)
         {
             var config = _viewModel.GetSessionConfig();
 
-            // 이전 사이드바 폭 및 가시성 복원
             _savedSidebarWidth = config.SidebarWidth >= 180 ? config.SidebarWidth : 280;
             UpdateSidebarVisibility(config.IsSidebarVisible);
 
-            // 다중 모니터 및 화면 이탈 방지 안전 좌표 복원
+            // 다중 모니터 및 화면 이탈 방지 안전 좌표 복원 (창이 표시되기 전에 선적용)
             ApplySafeWindowBounds(config.WindowLeft, config.WindowTop, config.WindowWidth, config.WindowHeight);
 
             if (config.IsMaximized)
             {
                 WindowState = WindowState.Maximized;
             }
+        }
 
-            // 에디터 커서 위치 복원
-            int initialCaret = _viewModel.ActiveTab?.CaretIndex > 0 ? _viewModel.ActiveTab.CaretIndex : config.CaretIndex;
-            if (initialCaret > 0 && initialCaret <= EditorTextBox.Text.Length)
+        private void MainWindow_Loaded(object sender, RoutedEventArgs e)
+        {
+            var config = _viewModel.GetSessionConfig();
+            var activeTab = _viewModel.ActiveTab;
+
+            // 에디터 커서 및 스크롤 위치 복원
+            int contentLen = activeTab?.Content?.Length ?? 0;
+            int initialCaret = activeTab?.CaretIndex > 0 ? activeTab.CaretIndex : config.CaretIndex;
+            if (initialCaret > 0 && initialCaret <= contentLen)
             {
                 EditorTextBox.CaretIndex = initialCaret;
+            }
+
+            if (activeTab != null && (activeTab.VerticalOffset > 0 || activeTab.HorizontalOffset > 0))
+            {
+                EditorTextBox.ScrollToVerticalOffset(activeTab.VerticalOffset);
+                EditorTextBox.ScrollToHorizontalOffset(activeTab.HorizontalOffset);
+            }
+            else if (initialCaret > 0 && initialCaret <= contentLen)
+            {
                 int lineIdx = EditorTextBox.GetLineIndexFromCharacterIndex(initialCaret);
                 if (lineIdx > 0)
                 {
@@ -187,6 +247,18 @@ namespace TreePad
 
         private void MainWindow_Closing(object? sender, CancelEventArgs e)
         {
+            PersistWindowSession();
+        }
+
+        public void FlushSessionOnSystemShutdown()
+        {
+            PersistWindowSession();
+        }
+
+        private void PersistWindowSession()
+        {
+            _undoSnapshotTimer.Stop();
+
             bool isMaximized = WindowState == WindowState.Maximized;
             double left = isMaximized ? RestoreBounds.Left : Left;
             double top = isMaximized ? RestoreBounds.Top : Top;
@@ -198,7 +270,15 @@ namespace TreePad
                 : _savedSidebarWidth;
 
             _viewModel.SidebarWidth = currentSidebarWidth;
-            _viewModel.SaveSessionBeforeClose(left, top, width, height, isMaximized, EditorTextBox.CaretIndex);
+            _viewModel.SaveSessionBeforeClose(
+                left,
+                top,
+                width,
+                height,
+                isMaximized,
+                EditorTextBox.CaretIndex,
+                EditorTextBox.VerticalOffset,
+                EditorTextBox.HorizontalOffset);
         }
 
         private void OnTabsScrollViewerScrollChanged(object sender, ScrollChangedEventArgs e)
@@ -269,6 +349,106 @@ namespace TreePad
             ShowFindBar(showReplace: true);
         }
 
+        private void OnInsertTimeDateClick(object sender, RoutedEventArgs e)
+        {
+            InsertCurrentTimeDateAtCaret();
+        }
+
+        private void InsertCurrentTimeDateAtCaret()
+        {
+            if (!_viewModel.HasOpenTabs || _viewModel.ActiveTab == null) return;
+
+            CommitCurrentTabUndoCheckpoint();
+
+            // 전통 Windows 메모장 표준 F5 타임스탬프 형식 (현재 문화권 기준 시간 + 날짜)
+            string timestamp = DateTime.Now.ToString("t yyyy-MM-dd");
+            int selStart = EditorTextBox.SelectionStart;
+            EditorTextBox.SelectedText = timestamp;
+            EditorTextBox.SelectionLength = 0;
+            EditorTextBox.CaretIndex = selStart + timestamp.Length;
+            EditorTextBox.Focus();
+
+            CommitCurrentTabUndoCheckpoint();
+        }
+
+        private void OnMenuUndoClick(object sender, RoutedEventArgs e)
+        {
+            PerformTabAwareUndo();
+        }
+
+        private void OnMenuRedoClick(object sender, RoutedEventArgs e)
+        {
+            PerformTabAwareRedo();
+        }
+
+        private bool PerformTabAwareUndo()
+        {
+            var tab = _viewModel.ActiveTab;
+            if (tab == null) return false;
+
+            if (EditorTextBox.CanUndo)
+            {
+                EditorTextBox.Undo();
+                tab.ResetUndoBaseline(tab.Content, EditorTextBox.CaretIndex);
+                return true;
+            }
+
+            if (tab.TryUndo(tab.Content, EditorTextBox.CaretIndex, out EditorSnapshot snapshot))
+            {
+                ApplySnapshotToEditor(tab, snapshot);
+                return true;
+            }
+
+            return false;
+        }
+
+        private bool PerformTabAwareRedo()
+        {
+            var tab = _viewModel.ActiveTab;
+            if (tab == null) return false;
+
+            if (EditorTextBox.CanRedo)
+            {
+                EditorTextBox.Redo();
+                tab.ResetUndoBaseline(tab.Content, EditorTextBox.CaretIndex);
+                return true;
+            }
+
+            if (tab.TryRedo(out EditorSnapshot snapshot))
+            {
+                ApplySnapshotToEditor(tab, snapshot);
+                return true;
+            }
+
+            return false;
+        }
+
+        private void ApplySnapshotToEditor(NoteTabViewModel tab, EditorSnapshot snapshot)
+        {
+            _isApplyingUndoRedo = true;
+            try
+            {
+                EditorTextBox.IsUndoEnabled = false;
+                tab.Content = snapshot.Text;
+                EditorTextBox.IsUndoEnabled = true;
+
+                int safeCaret = Math.Clamp(snapshot.CaretIndex, 0, snapshot.Text.Length);
+                EditorTextBox.CaretIndex = safeCaret;
+                int lineIdx = EditorTextBox.GetLineIndexFromCharacterIndex(safeCaret);
+                if (lineIdx >= 0)
+                {
+                    EditorTextBox.ScrollToLine(lineIdx);
+                }
+
+                _viewModel.NotifyContentChanged();
+                UpdateEditorCursorLineCol();
+            }
+            finally
+            {
+                _isApplyingUndoRedo = false;
+            }
+        }
+
         private void OnAboutClick(object sender, RoutedEventArgs e)
         {
             var aboutDialog = new Views.AboutDialog
@@ -290,7 +470,11 @@ namespace TreePad
 
         private void OnEditorTextChanged(object sender, TextChangedEventArgs e)
         {
+            if (_isApplyingUndoRedo || _viewModel.IsSwitchingOrExternalUpdate) return;
+
             _viewModel.NotifyContentChanged();
+            _undoSnapshotTimer.Stop();
+            _undoSnapshotTimer.Start();
         }
 
         private void OnEditorPreviewMouseWheel(object sender, MouseWheelEventArgs e)
@@ -319,7 +503,7 @@ namespace TreePad
 
         private void OnTreeViewPreviewKeyDown(object sender, KeyEventArgs e)
         {
-            // 인라인 이름 편집 TextBox 입력 중일 때는 트리 단축키(Delete/F2/Esc) 가로채기 금지
+            // 인라인 이름 편집 TextBox 입력 중일 때는 트리 단축키(Delete/F2/Esc/F5) 가로채기 금지
             if (e.OriginalSource is TextBox)
             {
                 return;
@@ -344,6 +528,11 @@ namespace TreePad
             else if (e.Key == Key.Escape && Keyboard.Modifiers == ModifierKeys.None)
             {
                 _viewModel.ClearTreeSelection();
+                e.Handled = true;
+            }
+            else if (e.Key == Key.F5 && Keyboard.Modifiers == ModifierKeys.None)
+            {
+                _viewModel.RefreshTree();
                 e.Handled = true;
             }
         }
@@ -447,14 +636,24 @@ namespace TreePad
         {
             try
             {
-                int caretIndex = Math.Clamp(EditorTextBox.CaretIndex, 0, EditorTextBox.Text.Length);
-                int line = EditorTextBox.GetLineIndexFromCharacterIndex(caretIndex);
-                if (line < 0) line = 0;
-                int lineCharIndex = EditorTextBox.GetCharacterIndexFromLineIndex(line);
-                if (lineCharIndex < 0) lineCharIndex = 0;
-                int col = Math.Max(0, caretIndex - lineCharIndex);
+                // ⚠️ EditorTextBox.Text는 호출할 때마다 전체 문자열을 힙에 새로 복사하므로 ActiveTab.Content 참조를 재사용하여 GC 할당 제로화
+                string text = _viewModel.ActiveTab?.Content ?? string.Empty;
+                int caretIndex = Math.Clamp(EditorTextBox.CaretIndex, 0, text.Length);
 
-                _viewModel.UpdateCursorPosition(line + 1, col + 1);
+                // 자동 줄바꿈(WordWrap)으로 접힌 시각적 줄이 아닌 실제 개행(\n) 기준 논리적 줄/열 번호를 계산하여 총 줄 수와 완벽히 일치시킴
+                int logicalLine = 1;
+                int lastNewLinePos = -1;
+                for (int i = 0; i < caretIndex; i++)
+                {
+                    if (text[i] == '\n')
+                    {
+                        logicalLine++;
+                        lastNewLinePos = i;
+                    }
+                }
+
+                int logicalCol = caretIndex - lastNewLinePos;
+                _viewModel.UpdateCursorPosition(logicalLine, logicalCol);
             }
             catch
             {
@@ -486,11 +685,11 @@ namespace TreePad
                 {
                     if (Keyboard.Modifiers == ModifierKeys.Shift)
                     {
-                        FindPrevious();
+                        FindPrevious(keepInputFocus: false);
                     }
                     else
                     {
-                        FindNext();
+                        FindNext(keepInputFocus: false);
                     }
                 }
                 e.Handled = true;
@@ -513,6 +712,27 @@ namespace TreePad
             {
                 ShowFindBar(showReplace: true);
                 e.Handled = true;
+            }
+            else if (e.Key == Key.F5 && Keyboard.Modifiers == ModifierKeys.None)
+            {
+                // 전통 Windows 메모장 방식: 에디터에서 F5 키를 누르면 현재 커서 위치에 시간/날짜 삽입
+                InsertCurrentTimeDateAtCaret();
+                e.Handled = true;
+            }
+            else if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.Z)
+            {
+                if (PerformTabAwareUndo())
+                {
+                    e.Handled = true;
+                }
+            }
+            else if ((Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.Y) ||
+                     (Keyboard.Modifiers == (ModifierKeys.Control | ModifierKeys.Shift) && e.Key == Key.Z))
+            {
+                if (PerformTabAwareRedo())
+                {
+                    e.Handled = true;
+                }
             }
         }
 
@@ -562,7 +782,7 @@ namespace TreePad
             FindBar.Visibility = Visibility.Visible;
             SetReplaceRowVisibility(showReplace);
 
-            if (!string.IsNullOrEmpty(EditorTextBox.SelectedText))
+            if (!string.IsNullOrEmpty(EditorTextBox.SelectedText) && !EditorTextBox.SelectedText.Contains('\n'))
             {
                 FindInputBox.Text = EditorTextBox.SelectedText;
             }
@@ -599,11 +819,11 @@ namespace TreePad
             {
                 if (Keyboard.Modifiers == ModifierKeys.Shift)
                 {
-                    FindPrevious();
+                    FindPrevious(keepInputFocus: true);
                 }
                 else
                 {
-                    FindNext();
+                    FindNext(keepInputFocus: true);
                 }
                 e.Handled = true;
             }
@@ -623,7 +843,7 @@ namespace TreePad
         {
             if (e.Key == Key.Enter)
             {
-                ReplaceCurrent();
+                ReplaceCurrent(keepInputFocus: true);
                 e.Handled = true;
             }
             else if (e.Key == Key.Escape)
@@ -635,28 +855,37 @@ namespace TreePad
 
         private void OnFindNextClick(object sender, RoutedEventArgs e)
         {
-            FindNext();
+            FindNext(keepInputFocus: false);
         }
 
         private void OnFindPreviousClick(object sender, RoutedEventArgs e)
         {
-            FindPrevious();
+            FindPrevious(keepInputFocus: false);
         }
 
-        private void FindNext()
+        private void FindNext(bool keepInputFocus = false)
         {
             string query = FindInputBox.Text;
             if (string.IsNullOrEmpty(query)) return;
 
-            string content = EditorTextBox.Text;
+            string content = _viewModel.ActiveTab?.Content ?? EditorTextBox.Text;
             if (string.IsNullOrEmpty(content))
             {
                 FindStatusText.Text = TreePad.Services.LocalizationService.Instance.GetFindEmptyDoc();
                 return;
             }
 
-            int startIndex = _lastFindIndex + 1;
-            if (startIndex >= content.Length) startIndex = 0;
+            int startIndex;
+            if (_lastFindIndex >= 0)
+            {
+                startIndex = _lastFindIndex + 1;
+            }
+            else
+            {
+                startIndex = EditorTextBox.SelectionStart + EditorTextBox.SelectionLength;
+            }
+
+            if (startIndex >= content.Length || startIndex < 0) startIndex = 0;
 
             int foundIndex = content.IndexOf(query, startIndex, StringComparison.CurrentCultureIgnoreCase);
             if (foundIndex == -1 && startIndex > 0)
@@ -667,10 +896,13 @@ namespace TreePad
             if (foundIndex != -1)
             {
                 _lastFindIndex = foundIndex;
-                EditorTextBox.Focus();
                 EditorTextBox.Select(foundIndex, query.Length);
                 int lineIdx = EditorTextBox.GetLineIndexFromCharacterIndex(foundIndex);
                 if (lineIdx >= 0) EditorTextBox.ScrollToLine(lineIdx);
+                if (!keepInputFocus)
+                {
+                    EditorTextBox.Focus();
+                }
                 FindStatusText.Text = TreePad.Services.LocalizationService.Instance.GetFindLocation(foundIndex + 1);
             }
             else
@@ -680,12 +912,12 @@ namespace TreePad
             }
         }
 
-        private void FindPrevious()
+        private void FindPrevious(bool keepInputFocus = false)
         {
             string query = FindInputBox.Text;
             if (string.IsNullOrEmpty(query)) return;
 
-            string content = EditorTextBox.Text;
+            string content = _viewModel.ActiveTab?.Content ?? EditorTextBox.Text;
             if (string.IsNullOrEmpty(content))
             {
                 FindStatusText.Text = TreePad.Services.LocalizationService.Instance.GetFindEmptyDoc();
@@ -693,7 +925,7 @@ namespace TreePad
             }
 
             int startIndex = EditorTextBox.SelectionStart - 1;
-            if (startIndex < 0) startIndex = content.Length - 1;
+            if (startIndex < 0 || startIndex >= content.Length) startIndex = content.Length - 1;
 
             int foundIndex = content.LastIndexOf(query, startIndex, StringComparison.CurrentCultureIgnoreCase);
             if (foundIndex == -1 && startIndex < content.Length - 1)
@@ -704,10 +936,13 @@ namespace TreePad
             if (foundIndex != -1)
             {
                 _lastFindIndex = foundIndex;
-                EditorTextBox.Focus();
                 EditorTextBox.Select(foundIndex, query.Length);
                 int lineIdx = EditorTextBox.GetLineIndexFromCharacterIndex(foundIndex);
                 if (lineIdx >= 0) EditorTextBox.ScrollToLine(lineIdx);
+                if (!keepInputFocus)
+                {
+                    EditorTextBox.Focus();
+                }
                 FindStatusText.Text = TreePad.Services.LocalizationService.Instance.GetFindLocation(foundIndex + 1);
             }
             else
@@ -719,10 +954,10 @@ namespace TreePad
 
         private void OnReplaceCurrentClick(object sender, RoutedEventArgs e)
         {
-            ReplaceCurrent();
+            ReplaceCurrent(keepInputFocus: false);
         }
 
-        private void ReplaceCurrent()
+        private void ReplaceCurrent(bool keepInputFocus = false)
         {
             string query = FindInputBox.Text;
             if (string.IsNullOrEmpty(query)) return;
@@ -732,15 +967,18 @@ namespace TreePad
             if (!string.IsNullOrEmpty(EditorTextBox.SelectedText) &&
                 string.Equals(EditorTextBox.SelectedText, query, StringComparison.CurrentCultureIgnoreCase))
             {
+                CommitCurrentTabUndoCheckpoint();
                 int selStart = EditorTextBox.SelectionStart;
                 EditorTextBox.SelectedText = replaceWith;
+                CommitCurrentTabUndoCheckpoint();
+
                 _lastFindIndex = selStart + replaceWith.Length - 1;
                 FindStatusText.Text = TreePad.Services.LocalizationService.Instance.GetFindReplaced();
-                FindNext();
+                FindNext(keepInputFocus);
             }
             else
             {
-                FindNext();
+                FindNext(keepInputFocus);
             }
         }
 
@@ -750,7 +988,7 @@ namespace TreePad
             if (string.IsNullOrEmpty(query)) return;
 
             string replaceWith = ReplaceInputBox.Text ?? string.Empty;
-            string content = EditorTextBox.Text;
+            string content = _viewModel.ActiveTab?.Content ?? EditorTextBox.Text;
             if (string.IsNullOrEmpty(content)) return;
 
             int count = 0;
@@ -763,11 +1001,18 @@ namespace TreePad
 
             if (count > 0)
             {
+                CommitCurrentTabUndoCheckpoint();
+
                 string escapedQuery = Regex.Escape(query);
                 string safeReplacement = replaceWith.Replace("$", "$$");
                 string newContent = Regex.Replace(content, escapedQuery, safeReplacement, RegexOptions.IgnoreCase);
 
-                EditorTextBox.Text = newContent;
+                // SelectAll + SelectedText 교체를 통해 네이티브 Undo 스택과 탭별 Undo 체크포인트 양쪽에서 모두 Ctrl+Z 복원이 가능하도록 처리
+                EditorTextBox.SelectAll();
+                EditorTextBox.SelectedText = newContent;
+                EditorTextBox.CaretIndex = Math.Min(EditorTextBox.CaretIndex, newContent.Length);
+                CommitCurrentTabUndoCheckpoint();
+
                 FindStatusText.Text = TreePad.Services.LocalizationService.Instance.GetFindReplacedAll(count);
                 _lastFindIndex = -1;
             }
@@ -967,11 +1212,14 @@ namespace TreePad
         private void OnEditorContextMenuOpening(object sender, ContextMenuEventArgs e)
         {
             bool hasSelection = EditorTextBox.SelectionLength > 0;
+            var activeTab = _viewModel.ActiveTab;
 
-            MenuCopy.Visibility = hasSelection ? Visibility.Visible : Visibility.Collapsed;
-            MenuCut.Visibility = hasSelection ? Visibility.Visible : Visibility.Collapsed;
-            MenuSelectAll.Visibility = Visibility.Visible;
-            MenuPaste.Visibility = Visibility.Visible;
+            MenuUndo.IsEnabled = EditorTextBox.CanUndo || (activeTab?.CanUndo ?? false);
+            MenuRedo.IsEnabled = EditorTextBox.CanRedo || (activeTab?.CanRedo ?? false);
+
+            MenuCopy.IsEnabled = hasSelection;
+            MenuCut.IsEnabled = hasSelection;
+            MenuSelectAll.IsEnabled = !string.IsNullOrEmpty(activeTab?.Content);
 
             try
             {
