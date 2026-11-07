@@ -42,7 +42,7 @@ Modern note-taking tools often become overly complex, heavyweight document edito
 
 ## 📥 Download & Quick Start
 
-1. Download **`TreePad.exe`** (or **`TreePad-v1.0.2-win-x64.zip`**) from the [**Latest Release**](https://github.com/yokoncho9/TreePad/releases/latest).
+1. Download **`TreePad.exe`** (or **`TreePad-v1.0.4-win-x64.zip`**) from the [**Latest Release**](https://github.com/yokoncho9/TreePad/releases/latest).
 2. Run `TreePad.exe` directly — portable and self-contained with no installation required.
 
 > **💡 Note on Windows SmartScreen & Browser Warnings**  

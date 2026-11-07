@@ -361,7 +361,7 @@ namespace TreePad
             CommitCurrentTabUndoCheckpoint();
 
             // 전통 Windows 메모장 표준 F5 타임스탬프 형식 (현재 문화권 기준 시간 + 날짜)
-            string timestamp = DateTime.Now.ToString("t yyyy-MM-dd");
+            string timestamp = DateTime.Now.ToString("tt h:mm yyyy-MM-dd");
             int selStart = EditorTextBox.SelectionStart;
             EditorTextBox.SelectedText = timestamp;
             EditorTextBox.SelectionLength = 0;

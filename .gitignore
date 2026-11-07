@@ -12,6 +12,7 @@ publish/
 publish_new/
 *.tmp
 *.log
+*.zip
 crash.log
 
 ## OS generated files
@@ -24,4 +25,7 @@ $RECYCLE.BIN/
 ## External reference / test tools
 cherrytree*/
 *cherrytree*
+*-source/
+TreePad-v1.0.3-source/
+
 
