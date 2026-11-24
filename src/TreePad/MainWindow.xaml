@@ -11,6 +11,7 @@
         Icon="Assets/app.ico"
         WindowStartupLocation="Manual"
         ExtendsContentIntoTitleBar="True"
+        WindowBackdropType="None"
         Foreground="{DynamicResource GruvFg}"
         Background="{DynamicResource GruvBg}"
         FontFamily="Segoe UI Variable Text, 맑은 고딕, Malgun Gothic, sans-serif"
@@ -91,6 +92,7 @@
     <Window.InputBindings>
         <KeyBinding Modifiers="Control" Key="N" Command="{Binding CreateNewNoteCommand}" />
         <KeyBinding Modifiers="Control+Shift" Key="N" Command="{Binding CreateNewFolderCommand}" />
+        <KeyBinding Modifiers="Control" Key="S" Command="{Binding SaveNowCommand}" />
         <KeyBinding Modifiers="Control" Key="W" Command="{Binding CloseActiveTabCommand}" />
         <KeyBinding Modifiers="Control" Key="Tab" Command="{Binding SelectNextTabCommand}" />
         <KeyBinding Modifiers="Control+Shift" Key="Tab" Command="{Binding SelectPreviousTabCommand}" />
@@ -1003,7 +1005,7 @@
                     </Button>
                     <Separator Width="1" Height="12" Margin="0,0,12,0" Background="{StaticResource GruvBorder}" />
 
-                    <TextBlock Text="{DynamicResource Status_UTF8}" FontSize="12" Foreground="{StaticResource GruvFgMuted}" Margin="0,0,14,0" />
+                    <TextBlock Text="{Binding EncodingDisplayText}" FontSize="12" Foreground="{StaticResource GruvFgMuted}" Margin="0,0,14,0" />
                     <Separator Width="1" Height="12" Margin="0,0,14,0" Background="{StaticResource GruvBorder}" />
                     <TextBlock Text="{Binding CharCountText}" FontSize="12" Foreground="{StaticResource GruvFg}" Margin="0,0,6,0" />
                     <TextBlock Text="{Binding CharCountNoSpacesText}" FontSize="11.5"

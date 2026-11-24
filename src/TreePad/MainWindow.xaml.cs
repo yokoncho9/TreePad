@@ -16,6 +16,7 @@ namespace TreePad
         private readonly MainViewModel _viewModel;
         private readonly DispatcherTimer _undoSnapshotTimer;
         private bool _isApplyingUndoRedo = false;
+        private bool _isNavigatingFind = false;
         private int _lastFindIndex = -1;
         private double _savedSidebarWidth = 280;
         private Point _dragStartPoint;
@@ -27,13 +28,6 @@ namespace TreePad
             InitializeComponent();
             _viewModel = new MainViewModel();
             DataContext = _viewModel;
-
-            // 💡 Gruvbox Material Light 고정 테마가 Windows 11 다크 모드와 충돌하여 드롭다운/스크롤바가 깨지지 않도록 Light 테마로 명시적 고정
-            try
-            {
-                Wpf.Ui.Appearance.ApplicationThemeManager.Apply(Wpf.Ui.Appearance.ApplicationTheme.Light);
-            }
-            catch { }
 
             _undoSnapshotTimer = new DispatcherTimer
             {
@@ -55,6 +49,7 @@ namespace TreePad
             SourceInitialized += MainWindow_SourceInitialized;
             Loaded += MainWindow_Loaded;
             Closing += MainWindow_Closing;
+            Closed += MainWindow_Closed;
         }
 
         private void CommitCurrentTabUndoCheckpoint()
@@ -207,6 +202,30 @@ namespace TreePad
             {
                 EditorTextBox.Focus();
             }
+
+            if (_viewModel.HasStorageFallbackWarning && !string.IsNullOrWhiteSpace(_viewModel.MissingStoragePath))
+            {
+                string missingPath = _viewModel.MissingStoragePath;
+                Dispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, new Action(() =>
+                {
+                    var loc = Services.LocalizationService.Instance;
+                    while (_viewModel.HasStorageFallbackWarning)
+                    {
+                        var answer = MessageBox.Show(
+                            this,
+                            loc.GetStorageUnavailableMessage(missingPath),
+                            loc.GetStorageUnavailableTitle(),
+                            MessageBoxButton.YesNo,
+                            MessageBoxImage.Warning,
+                            MessageBoxResult.Yes);
+
+                        if (answer != MessageBoxResult.Yes || _viewModel.TryReconnectConfiguredStorage())
+                        {
+                            break;
+                        }
+                    }
+                }));
+            }
         }
 
         private void ApplySafeWindowBounds(double savedLeft, double savedTop, double savedWidth, double savedHeight)
@@ -248,6 +267,11 @@ namespace TreePad
         private void MainWindow_Closing(object? sender, CancelEventArgs e)
         {
             PersistWindowSession();
+        }
+
+        private void MainWindow_Closed(object? sender, EventArgs e)
+        {
+            _viewModel.Dispose();
         }
 
         public void FlushSessionOnSystemShutdown()
@@ -629,6 +653,10 @@ namespace TreePad
 
         private void OnEditorSelectionChanged(object sender, RoutedEventArgs e)
         {
+            if (!_isNavigatingFind)
+            {
+                _lastFindIndex = -1;
+            }
             UpdateEditorCursorLineCol();
         }
 
@@ -895,13 +923,21 @@ namespace TreePad
 
             if (foundIndex != -1)
             {
-                _lastFindIndex = foundIndex;
-                EditorTextBox.Select(foundIndex, query.Length);
-                int lineIdx = EditorTextBox.GetLineIndexFromCharacterIndex(foundIndex);
-                if (lineIdx >= 0) EditorTextBox.ScrollToLine(lineIdx);
-                if (!keepInputFocus)
+                _isNavigatingFind = true;
+                try
                 {
-                    EditorTextBox.Focus();
+                    _lastFindIndex = foundIndex;
+                    EditorTextBox.Select(foundIndex, query.Length);
+                    int lineIdx = EditorTextBox.GetLineIndexFromCharacterIndex(foundIndex);
+                    if (lineIdx >= 0) EditorTextBox.ScrollToLine(lineIdx);
+                    if (!keepInputFocus)
+                    {
+                        EditorTextBox.Focus();
+                    }
+                }
+                finally
+                {
+                    _isNavigatingFind = false;
                 }
                 FindStatusText.Text = TreePad.Services.LocalizationService.Instance.GetFindLocation(foundIndex + 1);
             }
@@ -935,13 +971,21 @@ namespace TreePad
 
             if (foundIndex != -1)
             {
-                _lastFindIndex = foundIndex;
-                EditorTextBox.Select(foundIndex, query.Length);
-                int lineIdx = EditorTextBox.GetLineIndexFromCharacterIndex(foundIndex);
-                if (lineIdx >= 0) EditorTextBox.ScrollToLine(lineIdx);
-                if (!keepInputFocus)
+                _isNavigatingFind = true;
+                try
                 {
-                    EditorTextBox.Focus();
+                    _lastFindIndex = foundIndex;
+                    EditorTextBox.Select(foundIndex, query.Length);
+                    int lineIdx = EditorTextBox.GetLineIndexFromCharacterIndex(foundIndex);
+                    if (lineIdx >= 0) EditorTextBox.ScrollToLine(lineIdx);
+                    if (!keepInputFocus)
+                    {
+                        EditorTextBox.Focus();
+                    }
+                }
+                finally
+                {
+                    _isNavigatingFind = false;
                 }
                 FindStatusText.Text = TreePad.Services.LocalizationService.Instance.GetFindLocation(foundIndex + 1);
             }

@@ -109,6 +109,13 @@ namespace TreePad
 
                 base.OnStartup(e);
 
+                // 첫 창이 그려지기 전 Light 테마를 선적용하여 Windows 10/11 다크모드에서도 초기 프레임 깜빡임 방지
+                try
+                {
+                    Wpf.Ui.Appearance.ApplicationThemeManager.Apply(Wpf.Ui.Appearance.ApplicationTheme.Light);
+                }
+                catch { }
+
                 var mainWindow = new MainWindow();
                 MainWindow = mainWindow;
                 mainWindow.Show();

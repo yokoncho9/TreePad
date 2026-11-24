@@ -9,6 +9,7 @@
         ShowInTaskbar="False"
         ResizeMode="NoResize"
         ExtendsContentIntoTitleBar="True"
+        WindowBackdropType="None"
         Foreground="{DynamicResource GruvFg}"
         Background="{DynamicResource GruvBg}"
         FontFamily="Segoe UI Variable Text, 맑은 고딕, Malgun Gothic, sans-serif">

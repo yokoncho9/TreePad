@@ -11,10 +11,12 @@ namespace TreePad.ViewModels
     public partial class NoteTabViewModel : ObservableObject
     {
         private const int MaxUndoSteps = 100;
+        private const int MaxUndoTotalChars = 2_000_000;
 
         public string FilePath { get; set; } = string.Empty;
         public string RelativePath { get; set; } = string.Empty;
         public Encoding FileEncoding { get; set; } = new UTF8Encoding(false);
+        public DateTime? LastSyncedWriteTimeUtc { get; set; }
 
         [ObservableProperty]
         private string _title = string.Empty;
@@ -34,6 +36,7 @@ namespace TreePad.ViewModels
 
         private readonly LinkedList<EditorSnapshot> _undoStack = new();
         private readonly Stack<EditorSnapshot> _redoStack = new();
+        private int _totalUndoChars = 0;
         private string _lastRecordedUndoText;
         private int _lastRecordedCaretIndex;
 
@@ -45,7 +48,8 @@ namespace TreePad.ViewModels
             string title,
             string content,
             MainViewModel mainVm,
-            Encoding? fileEncoding = null)
+            Encoding? fileEncoding = null,
+            DateTime? lastSyncedWriteTimeUtc = null)
         {
             FilePath = filePath;
             RelativePath = relativePath;
@@ -53,6 +57,7 @@ namespace TreePad.ViewModels
             _content = content;
             _mainVm = mainVm;
             FileEncoding = fileEncoding ?? new UTF8Encoding(false);
+            LastSyncedWriteTimeUtc = lastSyncedWriteTimeUtc;
             _lastRecordedUndoText = content;
             _lastRecordedCaretIndex = 0;
         }
@@ -68,11 +73,7 @@ namespace TreePad.ViewModels
                 return;
             }
 
-            _undoStack.AddLast(new EditorSnapshot(_lastRecordedUndoText, _lastRecordedCaretIndex));
-            while (_undoStack.Count > MaxUndoSteps)
-            {
-                _undoStack.RemoveFirst();
-            }
+            PushUndoSnapshot(new EditorSnapshot(_lastRecordedUndoText, _lastRecordedCaretIndex));
 
             _redoStack.Clear();
             _lastRecordedUndoText = currentText;
@@ -99,6 +100,7 @@ namespace TreePad.ViewModels
                 _redoStack.Push(new EditorSnapshot(_lastRecordedUndoText, _lastRecordedCaretIndex));
                 restored = _undoStack.Last!.Value;
                 _undoStack.RemoveLast();
+                _totalUndoChars = Math.Max(0, _totalUndoChars - restored.Text.Length);
                 _lastRecordedUndoText = restored.Text;
                 _lastRecordedCaretIndex = restored.CaretIndex;
                 return true;
@@ -112,11 +114,7 @@ namespace TreePad.ViewModels
         {
             if (_redoStack.Count > 0)
             {
-                _undoStack.AddLast(new EditorSnapshot(_lastRecordedUndoText, _lastRecordedCaretIndex));
-                while (_undoStack.Count > MaxUndoSteps)
-                {
-                    _undoStack.RemoveFirst();
-                }
+                PushUndoSnapshot(new EditorSnapshot(_lastRecordedUndoText, _lastRecordedCaretIndex));
 
                 restored = _redoStack.Pop();
                 _lastRecordedUndoText = restored.Text;
@@ -126,6 +124,19 @@ namespace TreePad.ViewModels
 
             restored = default;
             return false;
+        }
+
+        private void PushUndoSnapshot(EditorSnapshot snapshot)
+        {
+            _undoStack.AddLast(snapshot);
+            _totalUndoChars += snapshot.Text.Length;
+
+            while (_undoStack.Count > MaxUndoSteps || (_undoStack.Count > 1 && _totalUndoChars > MaxUndoTotalChars))
+            {
+                var oldest = _undoStack.First!.Value;
+                _undoStack.RemoveFirst();
+                _totalUndoChars = Math.Max(0, _totalUndoChars - oldest.Text.Length);
+            }
         }
 
         [RelayCommand]

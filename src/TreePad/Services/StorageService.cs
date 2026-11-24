@@ -9,10 +9,13 @@ using TreePad.ViewModels;
 
 namespace TreePad.Services
 {
-    public readonly record struct NoteReadResult(string Content, Encoding Encoding);
+    public readonly record struct NoteReadResult(string Content, Encoding Encoding, DateTime LastWriteTimeUtc);
 
-    public class StorageService
+    public class StorageService : IDisposable
     {
+        public const long LargeFileWarningBytes = 5L * 1024 * 1024;  // 5MB 이상 열기 경고
+        public const long AutoRestoreMaxBytes = 20L * 1024 * 1024;   // 20MB 이상 세션 자동 복원 생략
+
         private static readonly UTF8Encoding Utf8NoBom = new(encoderShouldEmitUTF8Identifier: false);
         private static readonly UTF8Encoding Utf8Strict = new(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
         private static readonly UTF8Encoding Utf8WithBom = new(encoderShouldEmitUTF8Identifier: true);
@@ -26,10 +29,13 @@ namespace TreePad.Services
 
         private string _rootDirectory;
         private readonly SemaphoreSlim _fileLock = new(1, 1);
+        private bool _disposed = false;
         private long _suppressAllWatcherUntilTicks = 0;
         private readonly ConcurrentDictionary<string, long> _suppressedPaths = new(StringComparer.OrdinalIgnoreCase);
 
         public string RootDirectory => _rootDirectory;
+        public bool IsFallbackToDefaultStorage { get; private set; }
+        public string? RequestedStorageDirectory { get; private set; }
 
         public bool IsWatcherSuppressed => DateTime.UtcNow.Ticks < Interlocked.Read(ref _suppressAllWatcherUntilTicks);
 
@@ -79,8 +85,15 @@ namespace TreePad.Services
 
         public StorageService(string? customPath = null)
         {
-            if (string.IsNullOrWhiteSpace(customPath) || !Directory.Exists(customPath))
+            if (string.IsNullOrWhiteSpace(customPath))
             {
+                string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+                _rootDirectory = Path.Combine(appData, "TreePad", "Notes");
+            }
+            else if (!Directory.Exists(customPath))
+            {
+                IsFallbackToDefaultStorage = true;
+                RequestedStorageDirectory = customPath;
                 string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
                 _rootDirectory = Path.Combine(appData, "TreePad", "Notes");
             }
@@ -98,7 +111,35 @@ namespace TreePad.Services
             SuppressWatcher(2000);
             Directory.CreateDirectory(newPath);
             _rootDirectory = newPath;
+            IsFallbackToDefaultStorage = false;
+            RequestedStorageDirectory = null;
             EnsureStorageInitialized();
+        }
+
+        public static long GetFileSizeBytes(string filePath)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(filePath) || !File.Exists(filePath)) return 0;
+                return new FileInfo(filePath).Length;
+            }
+            catch
+            {
+                return 0;
+            }
+        }
+
+        public static string GetEncodingDisplayName(Encoding? encoding)
+        {
+            if (encoding == null) return "UTF-8";
+            if (encoding.CodePage == 65001)
+            {
+                return encoding.GetPreamble().Length > 0 ? "UTF-8 BOM" : "UTF-8";
+            }
+            if (encoding.CodePage == 1200) return "UTF-16 LE";
+            if (encoding.CodePage == 1201) return "UTF-16 BE";
+            if (encoding.CodePage == 949) return "CP949";
+            return encoding.WebName.ToUpperInvariant();
         }
 
         public static bool IsSupportedNoteFile(string filePath)
@@ -240,56 +281,56 @@ namespace TreePad.Services
         /// 바이트 배열로부터 BOM(UTF-8/UTF-16) 유무 및 유효한 UTF-8 / 레거시(CP949) 인코딩을 정밀 판별합니다.
         /// 새 파일 및 BOM 없는 UTF-8은 Utf8NoBom을 반환하고, 기존 BOM이나 CP949는 원본 인코딩을 그대로 보존합니다.
         /// </summary>
-        private static NoteReadResult DecodeBytesPreservingEncoding(byte[] bytes)
+        private static NoteReadResult DecodeBytesPreservingEncoding(byte[] bytes, DateTime lastWriteUtc)
         {
             if (bytes.Length == 0)
             {
-                return new NoteReadResult(string.Empty, Utf8NoBom);
+                return new NoteReadResult(string.Empty, Utf8NoBom, lastWriteUtc);
             }
 
             // 1. UTF-8 BOM (EF BB BF)
             if (bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF)
             {
-                return new NoteReadResult(Utf8WithBom.GetString(bytes, 3, bytes.Length - 3), Utf8WithBom);
+                return new NoteReadResult(Utf8WithBom.GetString(bytes, 3, bytes.Length - 3), Utf8WithBom, lastWriteUtc);
             }
 
             // 2. UTF-16 LE BOM (FF FE)
             if (bytes.Length >= 2 && bytes[0] == 0xFF && bytes[1] == 0xFE)
             {
                 var enc = new UnicodeEncoding(bigEndian: false, byteOrderMark: true);
-                return new NoteReadResult(enc.GetString(bytes, 2, bytes.Length - 2), enc);
+                return new NoteReadResult(enc.GetString(bytes, 2, bytes.Length - 2), enc, lastWriteUtc);
             }
 
             // 3. UTF-16 BE BOM (FE FF)
             if (bytes.Length >= 2 && bytes[0] == 0xFE && bytes[1] == 0xFF)
             {
                 var enc = new UnicodeEncoding(bigEndian: true, byteOrderMark: true);
-                return new NoteReadResult(enc.GetString(bytes, 2, bytes.Length - 2), enc);
+                return new NoteReadResult(enc.GetString(bytes, 2, bytes.Length - 2), enc, lastWriteUtc);
             }
 
             // 4. BOM 없는 순수 UTF-8 검증 (유효하지 않은 바이트 시퀀스가 있으면 CP949 폴백)
             try
             {
                 string utf8Text = Utf8Strict.GetString(bytes);
-                return new NoteReadResult(utf8Text, Utf8NoBom);
+                return new NoteReadResult(utf8Text, Utf8NoBom, lastWriteUtc);
             }
             catch (DecoderFallbackException)
             {
                 try
                 {
                     Encoding cp949 = Encoding.GetEncoding(949);
-                    return new NoteReadResult(cp949.GetString(bytes), cp949);
+                    return new NoteReadResult(cp949.GetString(bytes), cp949, lastWriteUtc);
                 }
                 catch
                 {
-                    return new NoteReadResult(Encoding.UTF8.GetString(bytes), Utf8NoBom);
+                    return new NoteReadResult(Encoding.UTF8.GetString(bytes), Utf8NoBom, lastWriteUtc);
                 }
             }
         }
 
         public NoteReadResult ReadNoteWithEncodingSync(string filePath)
         {
-            if (!File.Exists(filePath)) return new NoteReadResult(string.Empty, Utf8NoBom);
+            if (!File.Exists(filePath)) return new NoteReadResult(string.Empty, Utf8NoBom, DateTime.MinValue);
 
             _fileLock.Wait();
             try
@@ -299,6 +340,7 @@ namespace TreePad.Services
                 {
                     try
                     {
+                        DateTime lastWriteUtc = File.GetLastWriteTimeUtc(filePath);
                         using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
                         int length = (int)Math.Min(stream.Length, int.MaxValue);
                         byte[] bytes = new byte[length];
@@ -313,7 +355,7 @@ namespace TreePad.Services
                         {
                             Array.Resize(ref bytes, totalRead);
                         }
-                        return DecodeBytesPreservingEncoding(bytes);
+                        return DecodeBytesPreservingEncoding(bytes, lastWriteUtc);
                     }
                     catch (IOException ex)
                     {
@@ -339,7 +381,7 @@ namespace TreePad.Services
 
         public async Task<NoteReadResult> ReadNoteWithEncodingAsync(string filePath)
         {
-            if (!File.Exists(filePath)) return new NoteReadResult(string.Empty, Utf8NoBom);
+            if (!File.Exists(filePath)) return new NoteReadResult(string.Empty, Utf8NoBom, DateTime.MinValue);
 
             await _fileLock.WaitAsync().ConfigureAwait(false);
             try
@@ -349,6 +391,7 @@ namespace TreePad.Services
                 {
                     try
                     {
+                        DateTime lastWriteUtc = File.GetLastWriteTimeUtc(filePath);
                         using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
                         int length = (int)Math.Min(stream.Length, int.MaxValue);
                         byte[] bytes = new byte[length];
@@ -363,7 +406,7 @@ namespace TreePad.Services
                         {
                             Array.Resize(ref bytes, totalRead);
                         }
-                        return DecodeBytesPreservingEncoding(bytes);
+                        return DecodeBytesPreservingEncoding(bytes, lastWriteUtc);
                     }
                     catch (IOException ex)
                     {
@@ -382,9 +425,51 @@ namespace TreePad.Services
             }
         }
 
-        public void SaveNoteContentSync(string filePath, string content, Encoding? encoding = null)
+        public string? SaveConflictCopyIfModified(string filePath, DateTime? expectedLastWriteUtc, string newContent)
         {
-            if (string.IsNullOrWhiteSpace(filePath)) return;
+            if (!expectedLastWriteUtc.HasValue || string.IsNullOrWhiteSpace(filePath) || !File.Exists(filePath))
+                return null;
+
+            try
+            {
+                DateTime diskUtc = File.GetLastWriteTimeUtc(filePath);
+                if (Math.Abs((diskUtc - expectedLastWriteUtc.Value).TotalSeconds) <= 2.0)
+                {
+                    return null;
+                }
+
+                var diskRead = ReadNoteWithEncodingSync(filePath);
+                if (string.Equals(diskRead.Content, newContent, StringComparison.Ordinal))
+                {
+                    return null;
+                }
+
+                string dir = Path.GetDirectoryName(filePath) ?? _rootDirectory;
+                string stem = Path.GetFileNameWithoutExtension(filePath);
+                string ext = Path.GetExtension(filePath);
+                if (string.IsNullOrEmpty(ext)) ext = ".txt";
+
+                string stamp = DateTime.Now.ToString("yyyyMMdd-HHmmss");
+                string conflictPath = Path.Combine(dir, $"{stem}.conflict-{stamp}{ext}");
+                int counter = 1;
+                while (File.Exists(conflictPath))
+                {
+                    conflictPath = Path.Combine(dir, $"{stem}.conflict-{stamp}-{counter}{ext}");
+                    counter++;
+                }
+
+                SaveNoteContentSync(conflictPath, diskRead.Content, diskRead.Encoding);
+                return conflictPath;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        public DateTime SaveNoteContentSync(string filePath, string content, Encoding? encoding = null)
+        {
+            if (string.IsNullOrWhiteSpace(filePath)) return DateTime.MinValue;
             Encoding targetEncoding = encoding ?? Utf8NoBom;
 
             _fileLock.Wait();
@@ -402,9 +487,9 @@ namespace TreePad.Services
                 {
                     try
                     {
-                        WriteFileContentInPlaceSync(filePath, content, targetEncoding);
+                        WriteFileSafelySync(filePath, content, targetEncoding);
                         SuppressPathWatcher(filePath, 1500);
-                        return;
+                        return File.GetLastWriteTimeUtc(filePath);
                     }
                     catch (IOException ex)
                     {
@@ -417,6 +502,7 @@ namespace TreePad.Services
                 }
 
                 if (lastEx != null) throw lastEx;
+                return File.GetLastWriteTimeUtc(filePath);
             }
             finally
             {
@@ -424,9 +510,9 @@ namespace TreePad.Services
             }
         }
 
-        public async Task SaveNoteContentAsync(string filePath, string content, Encoding? encoding = null)
+        public async Task<DateTime> SaveNoteContentAsync(string filePath, string content, Encoding? encoding = null)
         {
-            if (string.IsNullOrWhiteSpace(filePath)) return;
+            if (string.IsNullOrWhiteSpace(filePath)) return DateTime.MinValue;
             Encoding targetEncoding = encoding ?? Utf8NoBom;
 
             await _fileLock.WaitAsync().ConfigureAwait(false);
@@ -444,9 +530,9 @@ namespace TreePad.Services
                 {
                     try
                     {
-                        await WriteFileContentInPlaceAsync(filePath, content, targetEncoding).ConfigureAwait(false);
+                        await WriteFileSafelyAsync(filePath, content, targetEncoding).ConfigureAwait(false);
                         SuppressPathWatcher(filePath, 1500);
-                        return;
+                        return File.GetLastWriteTimeUtc(filePath);
                     }
                     catch (IOException ex)
                     {
@@ -459,6 +545,7 @@ namespace TreePad.Services
                 }
 
                 if (lastEx != null) throw lastEx;
+                return File.GetLastWriteTimeUtc(filePath);
             }
             finally
             {
@@ -466,26 +553,129 @@ namespace TreePad.Services
             }
         }
 
-        private static void WriteFileContentInPlaceSync(string filePath, string content, Encoding encoding)
+        private static (byte[] Preamble, byte[] Body) EncodeContentBytes(string content, Encoding encoding)
         {
             // 인코딩 변환 시 CP949 등에서 표현 불가능한 유니코드 문자(이모지 등)가 추가된 경우 안전하게 UTF-8(No BOM)로 승격
             byte[] preamble = encoding.GetPreamble();
-            byte[] bodyBytes;
             try
             {
                 var strictEncoding = Encoding.GetEncoding(
                     encoding.CodePage,
                     EncoderFallback.ExceptionFallback,
                     DecoderFallback.ReplacementFallback);
-                bodyBytes = strictEncoding.GetBytes(content);
+                return (preamble, strictEncoding.GetBytes(content));
             }
             catch (EncoderFallbackException)
             {
-                preamble = Array.Empty<byte>();
-                bodyBytes = Utf8NoBom.GetBytes(content);
+                return (Array.Empty<byte>(), Utf8NoBom.GetBytes(content));
             }
+        }
 
-            // NTFS 파일 ID 및 클라우드 드라이브 메타데이터를 보존하기 위해 In-Place 스트림 기록 사용
+        private static void BackupExistingFileToAppData(string filePath)
+        {
+            try
+            {
+                if (!File.Exists(filePath)) return;
+                string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+                string backupDir = Path.Combine(appData, "TreePad", "Backups");
+                Directory.CreateDirectory(backupDir);
+                string backupPath = Path.Combine(backupDir, Path.GetFileName(filePath) + ".bak");
+                File.Copy(filePath, backupPath, overwrite: true);
+            }
+            catch { }
+        }
+
+        private void WriteFileSafelySync(string filePath, string content, Encoding encoding)
+        {
+            var (preamble, bodyBytes) = EncodeContentBytes(content, encoding);
+            string tempPath = $"{filePath}.{Guid.NewGuid():N}.tmp";
+            string? replaceBackupPath = null;
+            SuppressPathWatcher(tempPath, 2000);
+
+            try
+            {
+                using (var tempStream = new FileStream(tempPath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+                {
+                    if (preamble.Length > 0)
+                        tempStream.Write(preamble, 0, preamble.Length);
+                    if (bodyBytes.Length > 0)
+                        tempStream.Write(bodyBytes, 0, bodyBytes.Length);
+                    tempStream.Flush(flushToDisk: true);
+                }
+
+                if (File.Exists(filePath))
+                {
+                    replaceBackupPath = $"{filePath}.{Guid.NewGuid():N}.bak.tmp";
+                    SuppressPathWatcher(replaceBackupPath, 2000);
+                    File.Replace(tempPath, filePath, replaceBackupPath, ignoreMetadataErrors: true);
+                    TryDeleteQuietly(replaceBackupPath);
+                }
+                else
+                {
+                    File.Move(tempPath, filePath, overwrite: true);
+                }
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or PlatformNotSupportedException)
+            {
+                // 가상 클라우드 드라이브(Google Drive 등)에서 Replace/Move가 거절될 경우 AppData 백업 후 In-Place 쓰기 폴백
+                TryDeleteQuietly(tempPath);
+                if (replaceBackupPath != null) TryDeleteQuietly(replaceBackupPath);
+                BackupExistingFileToAppData(filePath);
+                WriteFileContentInPlaceSync(filePath, preamble, bodyBytes);
+            }
+        }
+
+        private async Task WriteFileSafelyAsync(string filePath, string content, Encoding encoding)
+        {
+            var (preamble, bodyBytes) = EncodeContentBytes(content, encoding);
+            string tempPath = $"{filePath}.{Guid.NewGuid():N}.tmp";
+            string? replaceBackupPath = null;
+            SuppressPathWatcher(tempPath, 2000);
+
+            try
+            {
+                await using (var tempStream = new FileStream(tempPath, FileMode.CreateNew, FileAccess.Write, FileShare.None, bufferSize: 4096, useAsync: true))
+                {
+                    if (preamble.Length > 0)
+                        await tempStream.WriteAsync(preamble.AsMemory()).ConfigureAwait(false);
+                    if (bodyBytes.Length > 0)
+                        await tempStream.WriteAsync(bodyBytes.AsMemory()).ConfigureAwait(false);
+                    await tempStream.FlushAsync().ConfigureAwait(false);
+                    tempStream.Flush(flushToDisk: true);
+                }
+
+                if (File.Exists(filePath))
+                {
+                    replaceBackupPath = $"{filePath}.{Guid.NewGuid():N}.bak.tmp";
+                    SuppressPathWatcher(replaceBackupPath, 2000);
+                    File.Replace(tempPath, filePath, replaceBackupPath, ignoreMetadataErrors: true);
+                    TryDeleteQuietly(replaceBackupPath);
+                }
+                else
+                {
+                    File.Move(tempPath, filePath, overwrite: true);
+                }
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or PlatformNotSupportedException)
+            {
+                TryDeleteQuietly(tempPath);
+                if (replaceBackupPath != null) TryDeleteQuietly(replaceBackupPath);
+                BackupExistingFileToAppData(filePath);
+                await WriteFileContentInPlaceAsync(filePath, preamble, bodyBytes).ConfigureAwait(false);
+            }
+        }
+
+        private static void TryDeleteQuietly(string path)
+        {
+            try
+            {
+                if (File.Exists(path)) File.Delete(path);
+            }
+            catch { }
+        }
+
+        private static void WriteFileContentInPlaceSync(string filePath, byte[] preamble, byte[] bodyBytes)
+        {
             using var stream = new FileStream(filePath, FileMode.OpenOrCreate, FileAccess.Write, FileShare.Read);
             stream.SetLength(0);
             if (preamble.Length > 0)
@@ -499,25 +689,9 @@ namespace TreePad.Services
             stream.Flush(flushToDisk: true);
         }
 
-        private static async Task WriteFileContentInPlaceAsync(string filePath, string content, Encoding encoding)
+        private static async Task WriteFileContentInPlaceAsync(string filePath, byte[] preamble, byte[] bodyBytes)
         {
-            byte[] preamble = encoding.GetPreamble();
-            byte[] bodyBytes;
-            try
-            {
-                var strictEncoding = Encoding.GetEncoding(
-                    encoding.CodePage,
-                    EncoderFallback.ExceptionFallback,
-                    DecoderFallback.ReplacementFallback);
-                bodyBytes = strictEncoding.GetBytes(content);
-            }
-            catch (EncoderFallbackException)
-            {
-                preamble = Array.Empty<byte>();
-                bodyBytes = Utf8NoBom.GetBytes(content);
-            }
-
-            using var stream = new FileStream(filePath, FileMode.OpenOrCreate, FileAccess.Write, FileShare.Read, bufferSize: 4096, useAsync: true);
+            await using var stream = new FileStream(filePath, FileMode.OpenOrCreate, FileAccess.Write, FileShare.Read, bufferSize: 4096, useAsync: true);
             stream.SetLength(0);
             if (preamble.Length > 0)
             {
@@ -528,6 +702,7 @@ namespace TreePad.Services
                 await stream.WriteAsync(bodyBytes.AsMemory()).ConfigureAwait(false);
             }
             await stream.FlushAsync().ConfigureAwait(false);
+            stream.Flush(flushToDisk: true);
         }
 
         public string CreateNote(string parentDir, string? title = null)
@@ -812,6 +987,14 @@ namespace TreePad.Services
             }
 
             return SanitizeReservedBaseName(cleaned, "_");
+        }
+
+        public void Dispose()
+        {
+            if (_disposed) return;
+            _disposed = true;
+            _fileLock.Dispose();
+            GC.SuppressFinalize(this);
         }
     }
 }

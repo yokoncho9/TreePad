@@ -14,6 +14,7 @@ namespace TreePad.Services
         StorageChanged,
         Refreshed,
         ExternalSynced,
+        ConflictSaved,
         Error
     }
 
@@ -254,6 +255,7 @@ TreePad의 모든 메모는 사용자 PC의 실제 폴더와 UTF-8 텍스트 파
                     SaveStateKind.StorageChanged => "Storage updated",
                     SaveStateKind.Refreshed => "Refreshed",
                     SaveStateKind.ExternalSynced => "Synced from disk",
+                    SaveStateKind.ConflictSaved => "Conflict copy saved",
                     SaveStateKind.Error => $"Save failed: {errorDetail}",
                     _ => "Ready"
                 };
@@ -270,6 +272,7 @@ TreePad의 모든 메모는 사용자 PC의 실제 폴더와 UTF-8 텍스트 파
                     SaveStateKind.StorageChanged => "저장 위치 변경 완료",
                     SaveStateKind.Refreshed => "새로고침 완료",
                     SaveStateKind.ExternalSynced => "외부 변경 반영됨",
+                    SaveStateKind.ConflictSaved => "충돌 사본 저장됨",
                     SaveStateKind.Error => $"저장 실패: {errorDetail}",
                     _ => "준비"
                 };
@@ -389,75 +392,22 @@ TreePad의 모든 메모는 사용자 PC의 실제 폴더와 UTF-8 텍스트 파
                 : $"메모 복사 중 일부 항목에서 오류가 발생했습니다: {msg}";
 
         public string GetAboutTitle() => IsEnglish ? "About TreePad" : "TreePad 정보";
-        public string GetAboutContent()
-        {
-            if (IsEnglish)
-            {
-                return
-@"🌲 TreePad v1.0.2
 
-A minimal, hierarchical plain-text notepad for Windows 11.
-Warm Gruvbox Material Paper Theme.
+        public string GetLargeFileConfirmTitle()
+            => IsEnglish ? "Large File Warning" : "대용량 파일 열기 확인";
 
-• Developer: yokoncho9
-• GitHub: https://github.com/yokoncho9/TreePad
-• License: MIT License
+        public string GetLargeFileConfirmMessage(string fileName, double sizeMb)
+            => IsEnglish
+                ? $"'{fileName}' is {sizeMb:F1} MB. Opening very large plain-text files may take a moment.\nDo you want to open it?"
+                : $"'{fileName}' 파일의 크기가 {sizeMb:F1} MB입니다. 대용량 텍스트 파일은 열 때 잠시 지연될 수 있습니다.\n그래도 여시겠습니까?";
 
-Fast, distraction-free writing with folder trees, live cloud sync (.txt / .md), and instant zero-save session restore.";
-            }
-            else
-            {
-                return
-@"🌲 TreePad v1.0.2
+        public string GetStorageUnavailableTitle()
+            => IsEnglish ? "Storage Folder Not Ready" : "저장소 폴더 연결 대기 중";
 
-나만의 윈도우 11 순수 텍스트 트리 메모장
-편안한 Gruvbox Material 종이 테마 적용
-
-• 개발자: yokoncho9
-• 깃허브: https://github.com/yokoncho9/TreePad
-• 라이선스: MIT License
-
-군더더기 없는 가벼운 속도와 계층적 트리 정리, 실시간 클라우드 연동(.txt / .md), 무손실 자동 세션 복원을 경험해 보세요.";
-            }
-        }
-
-        public string GetCloudGuideTitle() => IsEnglish ? "Cloud & Mobile Sync Guide" : "스마트폰(안드로이드) 및 클라우드 동기화 안내";
-        public string GetCloudGuideContent()
-        {
-            if (IsEnglish)
-            {
-                return
-@"📱 Smartphone & Cloud Sync Guide
-
-All TreePad data is stored directly on your disk as standard UTF-8 .txt and .md files inside real folders.
-
-1) Set your cloud sync folder:
-   - Click [≡ Menu] -> [Change Storage...].
-   - Choose a folder inside Google Drive, OneDrive, or Dropbox.
-
-2) Read & edit on your smartphone:
-   - Open and edit your synced .txt / .md files anytime using Google Drive, Markor, Obsidian, or QuickEdit.
-
-3) Real-time external detection:
-   - TreePad watches the folder in real time and automatically reflects external changes (or press F5 anytime).";
-            }
-            else
-            {
-                return
-@"📱 스마트폰(안드로이드) 및 클라우드 동기화 안내
-
-TreePad의 모든 데이터는 실제 디스크의 폴더와 표준 UTF-8 .txt / .md 파일로 저장됩니다.
-
-1) 클라우드 드라이브 동기화 폴더 설정:
-   - 좌측 상단 [≡ 메뉴] → [저장 위치 변경...]을 눌러 Google Drive, OneDrive, Dropbox의 동기화 폴더로 지정하세요.
-
-2) 스마트폰에서 확인 및 편집:
-   - 스마트폰의 Google Drive 앱 또는 마크다운/텍스트 편집기(Markor, Obsidian, QuickEdit 등)로 메모를 언제 어디서나 열고 편집할 수 있습니다.
-
-3) 실시간 외부 감지 지원:
-   - 외부 기기에서 추가·수정된 파일도 실시간으로 자동 반영됩니다 (언제든 F5로 수동 새로고침 가능).";
-            }
-        }
+        public string GetStorageUnavailableMessage(string missingPath)
+            => IsEnglish
+                ? $"The configured storage folder is currently unavailable (cloud drive may still be mounting):\n{missingPath}\n\n• [Yes] : Retry connecting to the configured folder\n• [No] : Open the default local folder for now"
+                : $"설정된 저장소 폴더에 아직 접근할 수 없습니다 (클라우드 드라이브가 아직 마운트 중일 수 있습니다):\n{missingPath}\n\n• [예] : 설정된 폴더 연결 다시 시도\n• [아니오] : 임시로 기본 로컬 폴더 사용";
 
         public string GetFindNoMatch() => IsEnglish ? "No matching text found." : "일치하는 단어가 없습니다.";
         public string GetFindEmptyDoc() => IsEnglish ? "Document is empty." : "문서가 비어 있습니다.";

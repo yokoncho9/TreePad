@@ -13,7 +13,7 @@ using TreePad.Services;
 
 namespace TreePad.ViewModels
 {
-    public partial class MainViewModel : ObservableObject
+    public partial class MainViewModel : ObservableObject, IDisposable
     {
         private static readonly double[] FontSizeSteps = { 10, 11, 12, 13, 14, 15, 16, 18, 20, 22, 24, 28, 32, 36, 40 };
 
@@ -27,8 +27,12 @@ namespace TreePad.ViewModels
         private bool _isSwitchingTab = false;
         private bool _isUpdatingExternalContent = false;
         private bool _suppressAutoOpenOnSelect = false;
+        private bool _isDisposed = false;
         private SaveStateKind _currentSaveState = SaveStateKind.Ready;
         private string? _lastSaveErrorDetail = null;
+
+        public bool HasStorageFallbackWarning => _storageService.IsFallbackToDefaultStorage;
+        public string? MissingStoragePath => _storageService.RequestedStorageDirectory;
 
         public event Action<NoteTabViewModel?>? ActiveTabChanging;
         public event Action<NoteTabViewModel?>? ActiveTabChanged;
@@ -102,7 +106,7 @@ namespace TreePad.ViewModels
         private string _wordWrapTooltip = string.Empty;
 
         [ObservableProperty]
-        private bool _isDarkMode = false;
+        private string _encodingDisplayText = "UTF-8";
 
         [ObservableProperty]
         private double _sidebarWidth = 280;
@@ -232,6 +236,7 @@ namespace TreePad.ViewModels
                 _fileWatcher = new FileSystemWatcher(directoryPath)
                 {
                     IncludeSubdirectories = true,
+                    InternalBufferSize = 65536,
                     NotifyFilter = NotifyFilters.FileName | NotifyFilters.DirectoryName | NotifyFilters.LastWrite | NotifyFilters.Size
                 };
 
@@ -239,12 +244,23 @@ namespace TreePad.ViewModels
                 _fileWatcher.Deleted += OnExternalFileEvent;
                 _fileWatcher.Changed += OnExternalFileEvent;
                 _fileWatcher.Renamed += OnExternalFileRenamed;
+                _fileWatcher.Error += OnExternalWatcherError;
                 _fileWatcher.EnableRaisingEvents = true;
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"FileSystemWatcher init failed: {ex.Message}");
             }
+        }
+
+        private void OnExternalWatcherError(object sender, ErrorEventArgs e)
+        {
+            Application.Current?.Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() =>
+            {
+                if (_isDisposed) return;
+                InitializeFileWatcher(_storageService.RootDirectory);
+                ScheduleExternalSync();
+            }));
         }
 
         private void DisposeFileWatcher()
@@ -258,6 +274,7 @@ namespace TreePad.ViewModels
                     _fileWatcher.Deleted -= OnExternalFileEvent;
                     _fileWatcher.Changed -= OnExternalFileEvent;
                     _fileWatcher.Renamed -= OnExternalFileRenamed;
+                    _fileWatcher.Error -= OnExternalWatcherError;
                     _fileWatcher.Dispose();
                 }
                 catch { }
@@ -412,6 +429,11 @@ namespace TreePad.ViewModels
                 {
                     var readResult = _storageService.ReadNoteWithEncodingSync(tab.FilePath);
                     tab.FileEncoding = readResult.Encoding;
+                    tab.LastSyncedWriteTimeUtc = readResult.LastWriteTimeUtc;
+                    if (tab == ActiveTab)
+                    {
+                        EncodingDisplayText = StorageService.GetEncodingDisplayName(readResult.Encoding);
+                    }
                     string diskContent = readResult.Content;
                     if (!string.Equals(diskContent, tab.Content, StringComparison.Ordinal))
                     {
@@ -612,6 +634,7 @@ namespace TreePad.ViewModels
                     }
                     _sessionConfig.LastSelectedFilePath = value.RelativePath;
                     UpdateTextStatistics(value.Content);
+                    EncodingDisplayText = StorageService.GetEncodingDisplayName(value.FileEncoding);
                     SetSaveState(SaveStateKind.Saved);
 
                     // 탭 클릭 시 좌측 트리에서도 해당 파일이 일관되게 선택되도록 동기화 (엉뚱한 파일 삭제/이름변경 방지)
@@ -635,6 +658,7 @@ namespace TreePad.ViewModels
                 {
                     UpdateTextStatistics(string.Empty);
                     UpdateCursorPosition(1, 1);
+                    EncodingDisplayText = "UTF-8";
                     SetSaveState(SaveStateKind.NoOpenNote);
                 }
                 HasOpenTabs = (value != null);
@@ -709,7 +733,30 @@ namespace TreePad.ViewModels
 
         private void OpenTabInternal(TreeItemViewModel note, bool makeActive, bool showReadErrorDialog = true)
         {
-            NoteReadResult readResult = new(string.Empty, new System.Text.UTF8Encoding(false));
+            long fileSize = StorageService.GetFileSizeBytes(note.FullPath);
+            if (!showReadErrorDialog && fileSize > StorageService.AutoRestoreMaxBytes)
+            {
+                return;
+            }
+
+            if (showReadErrorDialog && fileSize > StorageService.LargeFileWarningBytes)
+            {
+                double sizeMb = fileSize / (1024.0 * 1024.0);
+                var loc = LocalizationService.Instance;
+                var answer = MessageBox.Show(
+                    loc.GetLargeFileConfirmMessage(note.Name, sizeMb),
+                    loc.GetLargeFileConfirmTitle(),
+                    MessageBoxButton.YesNo,
+                    MessageBoxImage.Warning,
+                    MessageBoxResult.No);
+
+                if (answer != MessageBoxResult.Yes)
+                {
+                    return;
+                }
+            }
+
+            NoteReadResult readResult = new(string.Empty, new System.Text.UTF8Encoding(false), DateTime.MinValue);
             try
             {
                 if (File.Exists(note.FullPath))
@@ -732,7 +779,14 @@ namespace TreePad.ViewModels
             }
 
             string content = readResult.Content;
-            var tab = new NoteTabViewModel(note.FullPath, note.RelativePath, note.Name, content, this, readResult.Encoding);
+            var tab = new NoteTabViewModel(
+                note.FullPath,
+                note.RelativePath,
+                note.Name,
+                content,
+                this,
+                readResult.Encoding,
+                readResult.LastWriteTimeUtc);
 
             if (_sessionConfig.TabCaretPositions != null &&
                 _sessionConfig.TabCaretPositions.TryGetValue(note.RelativePath, out int savedCaret))
@@ -774,8 +828,14 @@ namespace TreePad.ViewModels
             {
                 try
                 {
-                    _storageService.SaveNoteContentSync(tab.FilePath, tab.Content, tab.FileEncoding);
+                    string? conflictPath = _storageService.SaveConflictCopyIfModified(tab.FilePath, tab.LastSyncedWriteTimeUtc, tab.Content);
+                    DateTime writtenUtc = _storageService.SaveNoteContentSync(tab.FilePath, tab.Content, tab.FileEncoding);
+                    tab.LastSyncedWriteTimeUtc = writtenUtc;
                     tab.IsDirty = false;
+                    if (conflictPath != null)
+                    {
+                        ScheduleExternalSync();
+                    }
                 }
                 catch { }
             }
@@ -850,20 +910,49 @@ namespace TreePad.ViewModels
             ActiveTab = keepTab;
         }
 
+        [RelayCommand]
+        public void SaveNow()
+        {
+            _autoSaveTimer.Stop();
+            FlushDirtyTabsSync();
+            if (!IsSaveError && ActiveTab != null)
+            {
+                SetSaveState(SaveStateKind.Saved);
+            }
+        }
+
         private void FlushDirtyTabsSync()
         {
+            bool conflictCreated = false;
             foreach (var tab in Tabs)
             {
                 if (!tab.IsDirty) continue;
                 try
                 {
-                    _storageService.SaveNoteContentSync(tab.FilePath, tab.Content, tab.FileEncoding);
-                    tab.IsDirty = false;
+                    string snapshot = tab.Content;
+                    string? conflictPath = _storageService.SaveConflictCopyIfModified(tab.FilePath, tab.LastSyncedWriteTimeUtc, snapshot);
+                    DateTime writtenUtc = _storageService.SaveNoteContentSync(tab.FilePath, snapshot, tab.FileEncoding);
+                    tab.LastSyncedWriteTimeUtc = writtenUtc;
+                    if (string.Equals(tab.Content, snapshot, StringComparison.Ordinal))
+                    {
+                        tab.IsDirty = false;
+                    }
+                    if (conflictPath != null)
+                    {
+                        conflictCreated = true;
+                    }
                 }
                 catch (Exception ex)
                 {
+                    tab.IsDirty = true;
                     SetSaveState(SaveStateKind.Error, ex.Message);
                 }
+            }
+
+            if (conflictCreated)
+            {
+                SetSaveState(SaveStateKind.ConflictSaved);
+                ScheduleExternalSync();
             }
         }
 
@@ -872,24 +961,41 @@ namespace TreePad.ViewModels
             var dirtyTabs = Tabs.Where(t => t.IsDirty).ToList();
             if (dirtyTabs.Count == 0) return;
 
+            bool conflictCreated = false;
             SetSaveState(SaveStateKind.Saving);
             try
             {
                 foreach (var tab in dirtyTabs)
                 {
                     string snapshot = tab.Content;
-                    tab.IsDirty = false;
-                    await _storageService.SaveNoteContentAsync(tab.FilePath, snapshot, tab.FileEncoding);
-                    // 저장 도중 추가 입력이 발생했으면 다시 Dirty 상태 유지
-                    if (!string.Equals(tab.Content, snapshot, StringComparison.Ordinal))
+                    string? conflictPath = _storageService.SaveConflictCopyIfModified(tab.FilePath, tab.LastSyncedWriteTimeUtc, snapshot);
+                    DateTime writtenUtc = await _storageService.SaveNoteContentAsync(tab.FilePath, snapshot, tab.FileEncoding);
+                    tab.LastSyncedWriteTimeUtc = writtenUtc;
+
+                    // 저장 완료 후, 저장 도중 추가 입력이 없었던 경우에만 Dirty 해제 (예외 시 true 유지로 유실 방지)
+                    if (string.Equals(tab.Content, snapshot, StringComparison.Ordinal))
                     {
-                        tab.IsDirty = true;
+                        tab.IsDirty = false;
                     }
+                    if (conflictPath != null)
+                    {
+                        conflictCreated = true;
+                    }
+                }
+
+                if (ActiveTab != null)
+                {
+                    EncodingDisplayText = StorageService.GetEncodingDisplayName(ActiveTab.FileEncoding);
                 }
 
                 if (Tabs.Any(t => t.IsDirty))
                 {
                     _autoSaveTimer.Start();
+                }
+                else if (conflictCreated)
+                {
+                    SetSaveState(SaveStateKind.ConflictSaved);
+                    ScheduleExternalSync();
                 }
                 else
                 {
@@ -1497,6 +1603,24 @@ namespace TreePad.ViewModels
             }
         }
 
+        public bool TryReconnectConfiguredStorage()
+        {
+            string? path = MissingStoragePath;
+            if (string.IsNullOrWhiteSpace(path) || !Directory.Exists(path))
+            {
+                return false;
+            }
+
+            DisposeFileWatcher();
+            _storageService.SetRootDirectory(path);
+            StorageDirectoryPath = path;
+            Tabs.Clear();
+            LoadTreeAndRestoreSession();
+            InitializeFileWatcher(path);
+            SetSaveState(SaveStateKind.StorageChanged);
+            return true;
+        }
+
         [RelayCommand]
         public void ChangeStorageLocation()
         {
@@ -1650,7 +1774,7 @@ namespace TreePad.ViewModels
             _sessionConfig.CaretIndex = activeCaretIndex;
             _sessionConfig.FontSize = FontSize;
             _sessionConfig.WordWrap = WordWrap;
-            _sessionConfig.Theme = IsDarkMode ? "Dark" : "Light";
+            _sessionConfig.Theme = "Light";
             _sessionConfig.ExpandedFolders = CollectExpandedPaths(RootItems).ToList();
             _sessionConfig.OpenTabs = Tabs.Select(t => t.RelativePath).ToList();
 
@@ -1679,6 +1803,17 @@ namespace TreePad.ViewModels
             }
 
             _sessionService.SaveSession(_sessionConfig);
+        }
+
+        public void Dispose()
+        {
+            if (_isDisposed) return;
+            _isDisposed = true;
+            _autoSaveTimer.Stop();
+            _externalSyncTimer.Stop();
+            DisposeFileWatcher();
+            _storageService.Dispose();
+            GC.SuppressFinalize(this);
         }
     }
 }
